@@ -443,7 +443,7 @@ async def test_http_rejects_output_path_ignores_preferences_and_keeps_download_i
     monkeypatch.setattr(
         server_module,
         "_api_key_for_request",
-        lambda ctx, *, transport: API_KEY,
+        lambda ctx, *, transport, api_base: API_KEY,
     )
     home = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home))

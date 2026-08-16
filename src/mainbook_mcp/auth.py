@@ -223,6 +223,73 @@ async def perform_login(
     )
 
 
+async def check_credential(
+    *,
+    api_base: str,
+    api_key: str,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> bool:
+    """Return whether the presented key is active without touching credits."""
+    response = await _credential_lifecycle_request(
+        "GET",
+        api_base=api_base,
+        api_key=api_key,
+        transport=transport,
+    )
+    if response.status_code == 401:
+        return False
+    if response.status_code != 200:
+        raise AuthFlowError("MainBook could not verify this credential. Try again later.")
+    payload = _json_object(response)
+    if payload.get("active") is not True:
+        raise AuthFlowError("MainBook returned an unexpected credential status.")
+    return True
+
+
+async def revoke_credential(
+    *,
+    api_base: str,
+    api_key: str,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> bool:
+    """Revoke only the key used for this request; false means it was already invalid."""
+    response = await _credential_lifecycle_request(
+        "DELETE",
+        api_base=api_base,
+        api_key=api_key,
+        transport=transport,
+    )
+    if response.status_code == 401:
+        return False
+    if response.status_code != 204:
+        raise AuthFlowError("MainBook could not revoke this credential. Try again later.")
+    return True
+
+
+async def _credential_lifecycle_request(
+    method: str,
+    *,
+    api_base: str,
+    api_key: str,
+    transport: httpx.AsyncBaseTransport | None,
+) -> httpx.Response:
+    normalized_base = normalize_api_base(api_base)
+    try:
+        async with httpx.AsyncClient(
+            transport=transport,
+            timeout=httpx.Timeout(30.0),
+            follow_redirects=False,
+            trust_env=False,
+            headers={
+                "Authorization": f"Bearer {api_key.strip()}",
+                "User-Agent": USER_AGENT,
+            },
+        ) as client:
+            return await client.request(method, f"{normalized_base}/api/v1/developer/key")
+    except httpx.HTTPError as exc:
+        raise AuthFlowError("Could not reach MainBook to manage this credential.") from exc
+
+
 def _validated_start(payload: dict[str, Any]) -> tuple[str, str, int, int]:
     device_code = payload.get("device_code")
     verification_uri = payload.get("verification_uri")

@@ -463,5 +463,6 @@ def test_server_pure_helpers_cover_contract_variants() -> None:
         _api_key_for_request(  # type: ignore[arg-type]
             SimpleNamespace(headers={"Authorization": "Basic not-a-bearer"}),
             transport="http",
+            api_base="https://api.mainbook.ai",
         )
     assert _header({"X-Other": "value"}, "authorization") is None

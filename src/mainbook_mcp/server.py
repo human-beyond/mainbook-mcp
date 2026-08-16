@@ -17,7 +17,7 @@ from pydantic import Field, ValidationError
 
 from . import __version__
 from .client import MainBookClient
-from .credentials import DEFAULT_API_BASE, CredentialError, load_credential
+from .credentials import CredentialError, load_credential, resolve_api_base
 from .errors import MainBookError, MainBookFileError, MainBookNetworkError
 from .files import PDFSource, download_pdf_url, load_local_pdf, normalize_allowed_roots
 from .models import (
@@ -75,10 +75,12 @@ def create_server(
     allowed_roots: Sequence[str | Path] = (),
     client_factory: ClientFactory | None = None,
     source_loader: SourceLoader | None = None,
+    api_base: str | None = None,
 ) -> MCPServer:
     """Build an isolated server; injected dependencies keep contract tests deterministic."""
     make_client = client_factory or _default_client_factory
     active_roots = normalize_allowed_roots(allowed_roots)
+    resolved_api_base = resolve_api_base(api_base)
 
     async def load_default_source(request: ConvertBankStatementInput) -> PDFSource:
         if request.file_path is not None:
@@ -196,8 +198,8 @@ def create_server(
         # caller is untrusted, so an anonymous or unusable key must never cost us a
         # disk read or 50 MB of egress; holding *a* string is not authentication,
         # hence the one cheap balance call that makes the API itself judge the key.
-        api_key = _api_key_for_request(ctx, transport=transport)
-        base_url = _api_base_url()
+        api_key = _api_key_for_request(ctx, transport=transport, api_base=resolved_api_base)
+        base_url = resolved_api_base
         async with make_client(api_key, base_url) as api:
             if transport == "http":
                 await api.get_balance()
@@ -263,8 +265,8 @@ def create_server(
         ),
     )
     async def get_balance(ctx: Context) -> BalanceOutput:
-        api_key = _api_key_for_request(ctx, transport=transport)
-        async with make_client(api_key, _api_base_url()) as api:
+        api_key = _api_key_for_request(ctx, transport=transport, api_base=resolved_api_base)
+        async with make_client(api_key, resolved_api_base) as api:
             raw = await api.get_balance()
         try:
             return BalanceOutput(
@@ -297,8 +299,8 @@ def create_server(
         ] = None,
     ) -> ListConversionsOutput:
         request = ListConversionsInput(limit=limit, cursor=cursor)
-        api_key = _api_key_for_request(ctx, transport=transport)
-        async with make_client(api_key, _api_base_url()) as api:
+        api_key = _api_key_for_request(ctx, transport=transport, api_base=resolved_api_base)
+        async with make_client(api_key, resolved_api_base) as api:
             raw = await api.list_jobs(limit=request.limit, cursor=request.cursor)
         results = raw.get("results")
         if not isinstance(results, list):
@@ -361,8 +363,8 @@ def create_server(
             allowed_roots=active_roots,
             transport=transport,
         )
-        api_key = _api_key_for_request(ctx, transport=transport)
-        base_url = _api_base_url()
+        api_key = _api_key_for_request(ctx, transport=transport, api_base=resolved_api_base)
+        base_url = resolved_api_base
         async with make_client(api_key, base_url) as api:
             raw_job = await api.get_job(request.job_id)
             current = _validated_job(raw_job)
@@ -477,7 +479,12 @@ def _default_client_factory(api_key: str, base_url: str) -> MainBookClient:
     return MainBookClient(api_key=api_key, base_url=base_url)
 
 
-def _api_key_for_request(ctx: Context, *, transport: Literal["stdio", "http"]) -> str:
+def _api_key_for_request(
+    ctx: Context,
+    *,
+    transport: Literal["stdio", "http"],
+    api_base: str,
+) -> str:
     if transport == "http":
         authorization = _header(ctx.headers, "authorization")
         if authorization is None:
@@ -490,7 +497,7 @@ def _api_key_for_request(ctx: Context, *, transport: Literal["stdio", "http"]) -
     if fallback:
         return fallback
     try:
-        stored = load_credential(_credential_api_base_url())
+        stored = load_credential(api_base)
     except CredentialError as exc:
         raise MainBookError(
             "The stored MainBook credential could not be read. Run 'mainbook-mcp auth login' again."
@@ -510,14 +517,6 @@ def _header(headers: Mapping[str, str] | None, name: str) -> str | None:
         if key.casefold() == name.casefold():
             return value
     return None
-
-
-def _api_base_url() -> str:
-    return os.getenv("MAINBOOK_API_BASE_URL", "https://api.mainbook.ai").rstrip("/")
-
-
-def _credential_api_base_url() -> str:
-    return os.getenv("MAINBOOK_API_BASE_URL", DEFAULT_API_BASE).rstrip("/")
 
 
 DestinationRequest = tuple[str | Path, str, str | None]

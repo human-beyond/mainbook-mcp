@@ -420,7 +420,7 @@ async def test_http_file_url_still_reaches_source_loader(monkeypatch) -> None:
     monkeypatch.setattr(
         server_module,
         "_api_key_for_request",
-        lambda ctx, *, transport: API_KEY,
+        lambda ctx, *, transport, api_base: API_KEY,
     )
     fake = FakeAPIClient()
     loaded: list[object] = []
@@ -784,7 +784,47 @@ async def test_stdio_uses_stored_credential_after_environment(monkeypatch) -> No
 
     assert result.is_error is not True
     assert captured == [stored_key]
-    assert bases == ["https://mainbook.ai"]
+    assert bases == ["https://api.mainbook.ai"]
+
+
+@pytest.mark.asyncio
+async def test_stdio_uses_one_normalized_origin_for_storage_and_rest(monkeypatch) -> None:
+    monkeypatch.delenv("MAINBOOK_API_KEY", raising=False)
+    monkeypatch.setenv("MAINBOOK_API_BASE_URL", "https://ignored.example")
+    storage_bases: list[str] = []
+    rest_bases: list[str] = []
+    stored_key = "mb_live_same_origin_key"
+
+    def load_credential(api_base: str) -> StoredCredential:
+        storage_bases.append(api_base)
+        return StoredCredential(
+            api_base=api_base,
+            api_key=stored_key,
+            client_name="Terminal",
+            account=None,
+            created_at=None,
+            storage="file",
+        )
+
+    @asynccontextmanager
+    async def client_factory(api_key: str, base_url: str) -> AsyncIterator[FakeAPIClient]:
+        assert api_key == stored_key
+        rest_bases.append(base_url)
+        yield FakeAPIClient()
+
+    monkeypatch.setattr(server_module, "load_credential", load_credential)
+    configured = create_server(
+        transport="stdio",
+        api_base="https://staging.example.com/",
+        client_factory=client_factory,
+    )
+
+    async with Client(configured) as client:
+        result = await client.call_tool("get_balance", {})
+
+    assert result.is_error is not True
+    assert storage_bases == ["https://staging.example.com"]
+    assert rest_bases == storage_bases
 
 
 @pytest.mark.asyncio

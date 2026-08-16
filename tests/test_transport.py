@@ -105,7 +105,8 @@ def test_cli_defaults_to_stdio(monkeypatch) -> None:
         def run(self, transport, **kwargs) -> None:
             calls.append((transport, kwargs))
 
-    def create_server(*, transport: str, allowed_roots) -> Server:
+    def create_server(*, transport: str, allowed_roots, api_base: str) -> Server:
+        assert api_base == "https://api.mainbook.ai"
         modes.append(transport)
         return Server()
 
@@ -126,7 +127,8 @@ def test_cli_http_mode_is_stateless_json(monkeypatch) -> None:
         def run(self, transport, **kwargs) -> None:
             calls.append((transport, kwargs))
 
-    def create_server(*, transport: str, allowed_roots) -> Server:
+    def create_server(*, transport: str, allowed_roots, api_base: str) -> Server:
+        assert api_base == "https://api.mainbook.ai"
         modes.append(transport)
         return Server()
 
@@ -162,7 +164,8 @@ def test_cli_transport_can_be_selected_by_environment(monkeypatch) -> None:
         def run(self, transport, **kwargs) -> None:
             calls.append((transport, kwargs))
 
-    def create_server(*, transport: str, allowed_roots) -> Server:
+    def create_server(*, transport: str, allowed_roots, api_base: str) -> Server:
+        assert api_base == "https://api.mainbook.ai"
         modes.append(transport)
         return Server()
 
@@ -188,7 +191,8 @@ def test_cli_positional_allowed_dirs_override_environment(monkeypatch, tmp_path,
         def run(self, transport, **kwargs) -> None:
             assert transport == "stdio"
 
-    def create_server(*, transport: str, allowed_roots) -> Server:
+    def create_server(*, transport: str, allowed_roots, api_base: str) -> Server:
+        assert api_base == "https://api.mainbook.ai"
         assert transport == "stdio"
         captured.append(allowed_roots)
         return Server()

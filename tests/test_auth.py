@@ -15,13 +15,56 @@ from mainbook_mcp.auth import (
     AuthFlowError,
     DeviceAuthFlow,
     DeviceToken,
+    check_credential,
     create_pkce_pair,
     detect_client_name,
+    revoke_credential,
 )
 
 API_KEY = "mb_live_device_flow_secret_never_print"
 DEVICE_CODE = "D" * 43
 VERIFICATION_URI = "https://mainbook.ai/connect?code=ABCD2345X"
+
+
+@pytest.mark.asyncio
+async def test_credential_lifecycle_uses_the_free_self_endpoint() -> None:
+    requests: list[httpx.Request] = []
+    responses = iter(
+        [
+            httpx.Response(200, json={"active": True, "client_name": "Terminal"}),
+            httpx.Response(204),
+        ]
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return next(responses)
+
+    transport = httpx.MockTransport(handler)
+
+    assert await check_credential(
+        api_base="https://api.mainbook.ai", api_key=API_KEY, transport=transport
+    )
+    assert await revoke_credential(
+        api_base="https://api.mainbook.ai", api_key=API_KEY, transport=transport
+    )
+    assert [(request.method, request.url.path) for request in requests] == [
+        ("GET", "/api/v1/developer/key"),
+        ("DELETE", "/api/v1/developer/key"),
+    ]
+    assert all(request.headers["Authorization"] == f"Bearer {API_KEY}" for request in requests)
+
+
+@pytest.mark.asyncio
+async def test_revoked_credential_status_and_logout_are_idempotent() -> None:
+    transport = httpx.MockTransport(lambda request: httpx.Response(401))
+
+    assert not await check_credential(
+        api_base="https://api.mainbook.ai", api_key=API_KEY, transport=transport
+    )
+    assert not await revoke_credential(
+        api_base="https://api.mainbook.ai", api_key=API_KEY, transport=transport
+    )
 
 
 class Clock:

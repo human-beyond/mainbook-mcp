@@ -6,6 +6,7 @@ import importlib
 import json
 import os
 import tempfile
+from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -13,7 +14,7 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
-DEFAULT_API_BASE = "https://mainbook.ai"
+DEFAULT_API_BASE = "https://api.mainbook.ai"
 KEYRING_SERVICE = "mainbook-mcp"
 StorageKind = Literal["keyring", "file"]
 
@@ -68,6 +69,19 @@ def normalize_api_base(value: str) -> str:
     netloc = f"{displayed_host}:{port}" if port is not None else displayed_host
     path = parsed.path.rstrip("/")
     return urlunsplit((scheme, netloc, path, "", ""))
+
+
+def resolve_api_base(
+    cli_value: str | None = None,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> str:
+    """Resolve flag, environment, and production default through one normalizer."""
+    current_environ = os.environ if environ is None else environ
+    configured = cli_value if cli_value is not None else current_environ.get(
+        "MAINBOOK_API_BASE_URL", DEFAULT_API_BASE
+    )
+    return normalize_api_base(configured)
 
 
 def credentials_path() -> Path:

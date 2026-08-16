@@ -51,12 +51,12 @@ uvx mainbook-mcp auth login
 The command opens MainBook in your browser, shows the same short code in both places, and waits for
 your approval. It stores the credential in the OS keyring when the optional `keyring` package is
 installed and working. Otherwise it uses `~/.config/mainbook/credentials.json` with private
-directory and file permissions. Use `mainbook-mcp auth status` to see which source is active without
-showing the credential, and `mainbook-mcp auth logout` to remove the local copy. The current device
-token response does not include an email or account ID, so `auth status` says that account identity
-was not provided instead of guessing. The implemented backend contract also has no endpoint that
-can revoke a key using that key, so `auth logout` removes the local copy and tells you to revoke the
-still-valid server key on the Developer page.
+directory and file permissions. Use `mainbook-mcp auth status` to check the active credential
+server-side without spending page credits. `mainbook-mcp auth logout` revokes that stored key first,
+then removes the local copy; if MainBook cannot be reached, it says plainly that the key may still be
+active. Signing in again revokes the previously stored key before saving its replacement. The device
+token response does not include an email or account ID, so status says that account identity was not
+provided instead of guessing.
 
 Then add one entry to your client's MCP configuration. This is the same block for Claude Desktop
 (**Settings → Developer → Edit Config**), Claude Code, and Cursor; no key is copied into it:
@@ -93,7 +93,8 @@ environment instead, separated by the platform's `os.pathsep` (`:` on macOS/Linu
 ### Manual API key for scripts and CI
 
 `MAINBOOK_API_KEY` takes precedence over any stored login. Keep the manual method for automation
-where an interactive browser is not available:
+where an interactive browser is not available. `auth login` warns when this variable will keep
+overriding the newly stored credential:
 
 ```bash
 export MAINBOOK_API_KEY="mb_live_REPLACE_ME"
