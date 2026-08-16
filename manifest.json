@@ -1,0 +1,87 @@
+{
+  "manifest_version": "0.4",
+  "name": "mainbook",
+  "display_name": "MainBook",
+  "version": "0.4.2",
+  "description": "Convert PDF bank statements to reviewed JSON, XLSX, or CSV through MainBook.",
+  "author": {
+    "name": "Human Beyond LLC",
+    "url": "https://mainbook.ai"
+  },
+  "icon": "icon.png",
+  "homepage": "https://mainbook.ai",
+  "documentation": "https://mainbook.ai/developer",
+  "privacy_policies": [
+    "https://mainbook.ai/legal/privacy-policy"
+  ],
+  "server": {
+    "type": "uv",
+    "entry_point": "src/mainbook_mcp/__main__.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${__dirname}",
+        "mainbook-mcp",
+        "${user_config.allowed_directories}"
+      ],
+      "env": {
+        "MAINBOOK_API_KEY": "${user_config.api_key}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "convert_bank_statement",
+      "description": "Convert one PDF bank statement through the complete MainBook workflow. JSON stays inline; local XLSX/CSV results are written to an allowed folder and returned as a full path. This creates a job and spends page credits."
+    },
+    {
+      "name": "get_balance",
+      "description": "Return total, reserved, and available MainBook credits. Every value is measured in PDF pages."
+    },
+    {
+      "name": "list_conversions",
+      "description": "List one cursor page of conversion jobs visible to the MainBook account. Pass the returned next_cursor to continue."
+    },
+    {
+      "name": "get_conversion",
+      "description": "Get a conversion after a timeout. JSON stays inline; local XLSX/CSV results are written to an allowed folder. HTTP mode returns safe download instructions."
+    },
+    {
+      "name": "output_folder",
+      "description": "Read or change the default local result folder. Pass an allowed absolute folder, or next_to_source to restore the default behavior."
+    }
+  ],
+  "user_config": {
+    "api_key": {
+      "type": "string",
+      "title": "MainBook API key",
+      "sensitive": true,
+      "required": true,
+      "description": "Create one at mainbook.ai/developer. It starts with mb_live_."
+    },
+    "allowed_directories": {
+      "type": "directory",
+      "title": "Folders MainBook may read and write",
+      "multiple": true,
+      "required": true,
+      "default": [
+        "${HOME}/Downloads",
+        "${HOME}/Desktop",
+        "${HOME}/Documents"
+      ],
+      "description": "MainBook only reads source PDFs and writes result files inside these folders. Add folders where you keep statements or exports."
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "python": ">=3.11"
+    }
+  }
+}

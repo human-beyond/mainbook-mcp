@@ -1,0 +1,101 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mainbook-mcp"
+version = "0.4.2"
+description = "MCP server for the MainBook bank-statement conversion API"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Human Beyond LLC", email = "hello@human-beyond.ai" }]
+keywords = [
+  "mcp",
+  "model-context-protocol",
+  "bank-statement",
+  "pdf",
+  "converter",
+  "ocr",
+  "accounting",
+  "bookkeeping",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Financial and Insurance Industry",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Office/Business :: Financial :: Accounting",
+  "Topic :: Text Processing :: Markup",
+  "Typing :: Typed",
+]
+dependencies = [
+  "httpx2>=2.10,<3",
+  "mcp>=2.0,<3",
+  "pydantic>=2.12,<3",
+  "pypdf>=6.1,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.4,<10",
+  "pytest-asyncio>=1.2,<2",
+  "pytest-cov>=7,<8",
+  "ruff>=0.12,<1",
+]
+
+[project.urls]
+Homepage = "https://mainbook.ai"
+Documentation = "https://api.mainbook.ai/api/v1/developer/docs/"
+"API reference" = "https://api.mainbook.ai/api/v1/developer/openapi.json"
+
+[project.scripts]
+mainbook-mcp = "mainbook_mcp.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mainbook_mcp"]
+
+# The source distribution is published to PyPI, so it carries only what a user
+# needs to run the server. The allowlist below is deliberate: anything not named
+# here — local tooling, checks that reach live services, scratch files — stays
+# out of a package that anyone can `pip download`.
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/mainbook_mcp",
+  "README.md",
+  "LICENSE",
+  "pyproject.toml",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --strict-config"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.coverage.run]
+branch = true
+source = ["mainbook_mcp"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 90
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "RUF", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S107", "S108", "S311"]

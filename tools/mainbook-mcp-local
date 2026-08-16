@@ -1,0 +1,26 @@
+#!/bin/bash
+# Launch the MainBook MCP server from this checkout for a local client.
+#
+# The key is read from a file instead of being written into every client's
+# config, so it exists in exactly one place, is easy to rotate, and never ends
+# up in a config file that gets shared, synced or pasted into a chat.
+#
+#   printf 'mb_live_YOURKEY' > ~/.mainbook/api_key && chmod 600 ~/.mainbook/api_key
+#
+# Point any MCP client at this script. No arguments; stdio only.
+set -euo pipefail
+
+KEY_FILE="${MAINBOOK_API_KEY_FILE:-$HOME/.mainbook/api_key}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ -z "${MAINBOOK_API_KEY:-}" ]; then
+  if [ ! -r "$KEY_FILE" ]; then
+    echo "mainbook-mcp: no key. Put one in $KEY_FILE or set MAINBOOK_API_KEY." >&2
+    exit 1
+  fi
+  MAINBOOK_API_KEY="$(tr -d '[:space:]' < "$KEY_FILE")"
+fi
+export MAINBOOK_API_KEY
+export MAINBOOK_API_BASE_URL="${MAINBOOK_API_BASE_URL:-https://api.mainbook.ai}"
+
+exec "$HERE/.venv/bin/python" -m mainbook_mcp "$@"

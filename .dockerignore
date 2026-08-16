@@ -1,0 +1,16 @@
+.venv/
+.pytest_cache/
+cov_annotate/
+tests/
+.coverage*
+__pycache__/
+*.py[cod]
+build/
+dist/
+.git/
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
