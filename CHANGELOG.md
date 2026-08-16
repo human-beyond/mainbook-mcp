@@ -4,6 +4,19 @@ All notable changes to this project are documented here. Versions follow
 [semantic versioning](https://semver.org/) and match the published
 [PyPI releases](https://pypi.org/project/mainbook-mcp/).
 
+## [0.5.0] — 2026-08-16
+
+### Added
+
+- `mainbook-mcp auth login`, `auth status`, and `auth logout` for browser-assisted terminal sign-in.
+- Optional OS-keyring storage, with a private per-user JSON fallback when keyring is not installed,
+  locked, or unavailable.
+
+### Changed
+
+- Local stdio authentication now resolves `MAINBOOK_API_KEY` first, then the stored credential.
+- Streamable HTTP authentication reads only the request's Bearer header and never local storage.
+
 ## [0.4.2] — 2026-08-16
 
 No functional changes to the server itself; this release exists so that every

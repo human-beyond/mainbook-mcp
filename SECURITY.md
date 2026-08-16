@@ -9,10 +9,11 @@ We aim to acknowledge a report within three working days.
 
 ## What this server touches
 
-- **Your API key.** In local `stdio` mode it comes from the client configuration or the
-  environment. In HTTP mode it is read from each request's `Authorization` header and is never
-  stored in global state. The key is sent only to the MainBook API; presigned upload headers are
-  forwarded to storage unchanged and never carry it.
+- **Your API key.** In local `stdio` mode `MAINBOOK_API_KEY` takes precedence, followed by a
+  browser-login credential in the OS keyring or the private local fallback file. In HTTP mode the
+  key is read only from each request's `Authorization` header; the environment, keyring, and local
+  credential file are not consulted. The key is sent only to the MainBook API; presigned upload
+  headers are forwarded to storage unchanged and never carry it.
 - **Your files.** The server may read statements from, and write results to, only the folders you
   list when starting it. Paths are expanded and strictly resolved before the check, so `..` and
   symlinks cannot escape. Before a result is written the checked folder is held open as a

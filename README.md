@@ -35,23 +35,38 @@ statement files you already have. Nothing is scraped and no banking credentials 
 
 ### What you need
 
-A MainBook API key from <https://mainbook.ai/developer>, and the folders holding your statements.
-Conversion is the only tool that spends page credits. Of the other four, `get_balance` and
-`list_conversions` only read, `get_conversion` may write a result file, and `output_folder` changes
-a local preference; none of them changes anything in your MainBook account.
+A MainBook account and the folders holding your statements. Conversion is the only tool that spends
+page credits. Of the other four, `get_balance` and `list_conversions` only read, `get_conversion`
+may write a result file, and `output_folder` changes a local preference; none of them changes
+anything in your MainBook account.
 
 ## Add it to your client
 
-Add one entry to your client's MCP configuration. This is the same block for Claude Desktop
-(**Settings → Developer → Edit Config**), Claude Code, and Cursor:
+Sign in once from a terminal:
+
+```bash
+uvx mainbook-mcp auth login
+```
+
+The command opens MainBook in your browser, shows the same short code in both places, and waits for
+your approval. It stores the credential in the OS keyring when the optional `keyring` package is
+installed and working. Otherwise it uses `~/.config/mainbook/credentials.json` with private
+directory and file permissions. Use `mainbook-mcp auth status` to see which source is active without
+showing the credential, and `mainbook-mcp auth logout` to remove the local copy. The current device
+token response does not include an email or account ID, so `auth status` says that account identity
+was not provided instead of guessing. The implemented backend contract also has no endpoint that
+can revoke a key using that key, so `auth logout` removes the local copy and tells you to revoke the
+still-valid server key on the Developer page.
+
+Then add one entry to your client's MCP configuration. This is the same block for Claude Desktop
+(**Settings → Developer → Edit Config**), Claude Code, and Cursor; no key is copied into it:
 
 ```json
 {
   "mcpServers": {
     "mainbook": {
       "command": "uvx",
-      "args": ["mainbook-mcp", "~/Downloads", "~/Desktop", "~/Documents"],
-      "env": { "MAINBOOK_API_KEY": "mb_live_…" }
+      "args": ["mainbook-mcp", "~/Downloads", "~/Desktop", "~/Documents"]
     }
   }
 }
@@ -63,9 +78,6 @@ Codex reads TOML, so put the same thing in `~/.codex/config.toml`:
 [mcp_servers.mainbook]
 command = "uvx"
 args = ["mainbook-mcp", "~/Downloads", "~/Desktop", "~/Documents"]
-
-[mcp_servers.mainbook.env]
-MAINBOOK_API_KEY = "mb_live_…"
 ```
 
 `uvx` comes with [uv](https://docs.astral.sh/uv/); install it once with `brew install uv` or
@@ -77,6 +89,18 @@ upgrade it yourself with `pip install -U mainbook-mcp`.
 The folder arguments are the only places the server may read a statement from or write a result to;
 anything outside them is refused. `MAINBOOK_ALLOWED_DIRS` sets the same list through the
 environment instead, separated by the platform's `os.pathsep` (`:` on macOS/Linux, `;` on Windows).
+
+### Manual API key for scripts and CI
+
+`MAINBOOK_API_KEY` takes precedence over any stored login. Keep the manual method for automation
+where an interactive browser is not available:
+
+```bash
+export MAINBOOK_API_KEY="mb_live_REPLACE_ME"
+mainbook-mcp
+```
+
+Create and revoke manual keys at <https://mainbook.ai/developer>. Never commit them.
 
 ### Claude Desktop, without touching a config file
 
@@ -136,7 +160,7 @@ to return a REST download instruction because the server disk does not belong to
 ## Manual requirements and installation
 
 - Python 3.11 or newer
-- A MainBook API key created at `https://mainbook.ai/developer`
+- A MainBook account
 
 From this directory:
 
@@ -145,25 +169,20 @@ python3 -m venv .venv
 .venv/bin/python -m pip install .
 ```
 
+To prefer the OS keyring over the private JSON fallback, install the optional extra in every
+environment that runs the login command or the local server:
+
+```bash
+.venv/bin/python -m pip install '.[keyring]'
+```
+
 Use a plain install, not `pip install -e .`. In this checkout the editable install writes a `.pth`
 file that the interpreter does not pick up, so `python -m mainbook_mcp` fails with "No module named
 mainbook_mcp" while the package looks installed. An identical file under another name is honoured,
 so the content is fine and the cause is still unexplained — a plain install sidesteps it entirely.
 
-Keep `mb_live_...` values in a personal environment or client configuration. Never commit them.
-
-### Keeping the key out of every client config
-
-`tools/mainbook-mcp-local` reads the key from `~/.mainbook/api_key` and launches the server, so the
-key lives in one file instead of being copied into Claude Desktop, Claude Code, Cursor and Codex
-configs separately — one place to rotate, and nothing secret inside a file you might share.
-
-```bash
-mkdir -p ~/.mainbook && chmod 700 ~/.mainbook
-printf 'mb_live_YOURKEY' > ~/.mainbook/api_key && chmod 600 ~/.mainbook/api_key
-```
-
-Then point any client's `command` at `tools/mainbook-mcp-local` with no arguments and no `env`.
+If you use the manual method for automation, keep `mb_live_...` values in a secret environment or
+client configuration. Never commit them.
 
 ## Streamable HTTP mode
 
@@ -192,8 +211,9 @@ The MCP endpoint is then `http://127.0.0.1:8000/mcp`. Each client should send it
 Authorization: Bearer mb_live_REPLACE_ME
 ```
 
-The header is read from each tool-call request and never stored in global state. If no header is
-present, `MAINBOOK_API_KEY` is an optional single-deployment fallback. For Codex remote mode:
+The header is read from each tool-call request and never stored in global state. Hosted HTTP mode
+does not inspect `MAINBOOK_API_KEY`, the OS keyring, or the local credential file. For Codex remote
+mode:
 
 ```toml
 [mcp_servers.mainbook]
@@ -208,7 +228,8 @@ normal HTTPS termination and access controls.
 
 ## Environment variables
 
-- `MAINBOOK_API_KEY`: required in stdio; fallback only in HTTP mode.
+- `MAINBOOK_API_KEY`: optional in stdio and takes precedence over a stored login; ignored in HTTP
+  mode, where every tool call must carry its own Bearer header.
 - `MAINBOOK_API_BASE_URL`: REST host, default `https://api.mainbook.ai`. The server appends
   `/api/v1/developer`.
 - `MAINBOOK_ALLOWED_DIRS`: local folders allowed for source reads and result writes, separated by the platform's
@@ -233,6 +254,9 @@ normal HTTPS termination and access controls.
   existing files are not overwritten.
 - `~/.mainbook/preferences.json` is replaced atomically. The `.mainbook` directory is mode `0700`
   and the preference file is mode `0600`; malformed or unreadable preferences are ignored safely.
+- Terminal credentials use the OS keyring when the optional package is usable. The fallback
+  `~/.config/mainbook/credentials.json` is replaced atomically inside a mode `0700` directory and
+  is mode `0600`; its top-level entries are keyed by API base URL.
 - Local paths are expanded and strictly resolved before the allowlist check, so `..` and symlinks
   cannot make an outside target appear to be inside an allowed folder. The resolved path must be
   strictly below a root, not equal to the root itself.

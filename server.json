@@ -3,7 +3,7 @@
   "name": "ai.mainbook/bank-statement-converter",
   "title": "MainBook Bank Statement Converter",
   "description": "Convert PDF bank statements to checked Excel, CSV or JSON with balance validation.",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "websiteUrl": "https://mainbook.ai/mcp",
   "repository": {
     "url": "https://github.com/human-beyond/mainbook-mcp",
@@ -14,15 +14,15 @@
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "mainbook-mcp",
-      "version": "0.4.2",
+      "version": "0.5.0",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
           "name": "MAINBOOK_API_KEY",
-          "description": "MainBook API key created at https://mainbook.ai/developer",
-          "isRequired": true,
+          "description": "Optional MainBook API key for scripts and CI; interactive users can run mainbook-mcp auth login",
+          "isRequired": false,
           "isSecret": true
         }
       ]

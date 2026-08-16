@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mainbook-mcp"
-version = "0.4.2"
+version = "0.5.0"
 description = "MCP server for the MainBook bank-statement conversion API"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -41,6 +41,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+keyring = [
+  "keyring>=25,<27",
+]
 dev = [
   "pytest>=8.4,<10",
   "pytest-asyncio>=1.2,<2",

@@ -52,8 +52,8 @@ def api_error_from_response(
 
     if reason == "invalid_key":
         message = (
-            "The MainBook API key is invalid or revoked. Check MAINBOOK_API_KEY for stdio, "
-            "or the Authorization header for HTTP mode."
+            "The MainBook API key is invalid or revoked. Run mainbook-mcp auth login again or "
+            "check MAINBOOK_API_KEY for stdio; check the Authorization header for HTTP mode."
         )
     elif reason == "insufficient_credits":
         available = _safe_int(body.get("available"))

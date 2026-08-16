@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "mainbook",
   "display_name": "MainBook",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Convert PDF bank statements to reviewed JSON, XLSX, or CSV through MainBook.",
   "author": {
     "name": "Human Beyond LLC",

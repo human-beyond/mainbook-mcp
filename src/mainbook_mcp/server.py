@@ -17,6 +17,7 @@ from pydantic import Field, ValidationError
 
 from . import __version__
 from .client import MainBookClient
+from .credentials import DEFAULT_API_BASE, CredentialError, load_credential
 from .errors import MainBookError, MainBookFileError, MainBookNetworkError
 from .files import PDFSource, download_pdf_url, load_local_pdf, normalize_allowed_roots
 from .models import (
@@ -195,7 +196,7 @@ def create_server(
         # caller is untrusted, so an anonymous or unusable key must never cost us a
         # disk read or 50 MB of egress; holding *a* string is not authentication,
         # hence the one cheap balance call that makes the API itself judge the key.
-        api_key = _api_key_for_request(ctx)
+        api_key = _api_key_for_request(ctx, transport=transport)
         base_url = _api_base_url()
         async with make_client(api_key, base_url) as api:
             if transport == "http":
@@ -262,7 +263,7 @@ def create_server(
         ),
     )
     async def get_balance(ctx: Context) -> BalanceOutput:
-        api_key = _api_key_for_request(ctx)
+        api_key = _api_key_for_request(ctx, transport=transport)
         async with make_client(api_key, _api_base_url()) as api:
             raw = await api.get_balance()
         try:
@@ -296,7 +297,7 @@ def create_server(
         ] = None,
     ) -> ListConversionsOutput:
         request = ListConversionsInput(limit=limit, cursor=cursor)
-        api_key = _api_key_for_request(ctx)
+        api_key = _api_key_for_request(ctx, transport=transport)
         async with make_client(api_key, _api_base_url()) as api:
             raw = await api.list_jobs(limit=request.limit, cursor=request.cursor)
         results = raw.get("results")
@@ -360,7 +361,7 @@ def create_server(
             allowed_roots=active_roots,
             transport=transport,
         )
-        api_key = _api_key_for_request(ctx)
+        api_key = _api_key_for_request(ctx, transport=transport)
         base_url = _api_base_url()
         async with make_client(api_key, base_url) as api:
             raw_job = await api.get_job(request.job_id)
@@ -410,9 +411,7 @@ def create_server(
             if path == NEXT_TO_SOURCE:
                 stored = NEXT_TO_SOURCE
             else:
-                folder = await asyncio.to_thread(
-                    validate_preference_folder, path, active_roots
-                )
+                folder = await asyncio.to_thread(validate_preference_folder, path, active_roots)
                 stored = str(folder)
             await asyncio.to_thread(write_output_preference, stored)
 
@@ -478,20 +477,30 @@ def _default_client_factory(api_key: str, base_url: str) -> MainBookClient:
     return MainBookClient(api_key=api_key, base_url=base_url)
 
 
-def _api_key_for_request(ctx: Context) -> str:
-    authorization = _header(ctx.headers, "authorization")
-    if authorization is not None:
+def _api_key_for_request(ctx: Context, *, transport: Literal["stdio", "http"]) -> str:
+    if transport == "http":
+        authorization = _header(ctx.headers, "authorization")
+        if authorization is None:
+            raise MainBookError("HTTP tool calls require an Authorization: Bearer <key> header.")
         scheme, separator, token = authorization.partition(" ")
         if scheme.lower() != "bearer" or not separator or not token.strip():
             raise MainBookError("Authorization must use a non-empty Bearer API key.")
         return token.strip()
     fallback = os.getenv("MAINBOOK_API_KEY", "").strip()
-    if not fallback:
+    if fallback:
+        return fallback
+    try:
+        stored = load_credential(_credential_api_base_url())
+    except CredentialError as exc:
         raise MainBookError(
-            "No MainBook API key was provided. Set MAINBOOK_API_KEY for stdio or send "
-            "Authorization: Bearer <key> in HTTP mode."
-        )
-    return fallback
+            "The stored MainBook credential could not be read. Run 'mainbook-mcp auth login' again."
+        ) from exc
+    if stored is not None:
+        return stored.api_key
+    raise MainBookError(
+        "No MainBook credential is configured. Run 'mainbook-mcp auth login', or set "
+        "MAINBOOK_API_KEY for scripts and CI."
+    )
 
 
 def _header(headers: Mapping[str, str] | None, name: str) -> str | None:
@@ -505,6 +514,10 @@ def _header(headers: Mapping[str, str] | None, name: str) -> str | None:
 
 def _api_base_url() -> str:
     return os.getenv("MAINBOOK_API_BASE_URL", "https://api.mainbook.ai").rstrip("/")
+
+
+def _credential_api_base_url() -> str:
+    return os.getenv("MAINBOOK_API_BASE_URL", DEFAULT_API_BASE).rstrip("/")
 
 
 DestinationRequest = tuple[str | Path, str, str | None]
@@ -538,9 +551,7 @@ async def _destination_for_conversion(
             requested = source.local_path.parent
             reason = "placed next to the source PDF"
             if preference.ignored:
-                warning = (
-                    "The saved output folder was ignored because it is missing or no longer allowed."
-                )
+                warning = "The saved output folder was ignored because it is missing or no longer allowed."
 
     path = await asyncio.to_thread(
         prepare_output_path,

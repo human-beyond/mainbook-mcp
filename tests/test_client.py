@@ -383,7 +383,7 @@ async def test_api_calls_announce_this_server_but_the_storage_put_does_not() -> 
         await client.upload_pdf(created["upload"], b"%PDF-test")
 
     create, upload = requests
-    assert USER_AGENT == f"mainbook-mcp/{__version__}"
+    assert f"mainbook-mcp/{__version__}" == USER_AGENT
     assert create.headers["user-agent"] == USER_AGENT
     assert "mainbook-mcp" not in upload.headers.get("user-agent", "")
 
