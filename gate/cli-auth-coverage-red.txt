@@ -1,0 +1,26 @@
+........................................................................ [ 41%]
+........s............................................................... [ 82%]
+..............................
+ERROR: Coverage failure: total of 89 is less than fail-under=90
+                                                                         [100%]
+================================ tests coverage ================================
+_______________ coverage: platform darwin, python 3.14.5-final-0 _______________
+
+Name                              Stmts   Miss Branch BrPart  Cover   Missing
+-----------------------------------------------------------------------------
+src/mainbook_mcp/__init__.py          1      0      0      0   100%
+src/mainbook_mcp/__main__.py        110     10     26      4    88%   145->exit, 148-149, 161-164, 176-178, 183
+src/mainbook_mcp/auth.py            152     23     42     14    81%   58, 60, 62, 99, 114, 118, 132-133, 137, 161, 175, 179, 194, 206-207, 220, 242, 250-251, 261, 268-269, 273
+src/mainbook_mcp/client.py          144      0     36      0   100%
+src/mainbook_mcp/credentials.py     184     34     36     11    79%   52-53, 104, 118->132, 153-162, 165->167, 175-178, 191-192, 203, 207, 209, 227-228, 252-257, 269, 285-286, 289, 291-292
+src/mainbook_mcp/errors.py           49      0     26      0   100%
+src/mainbook_mcp/files.py           185      7     54      2    96%   80-81, 86-87, 118, 123->116, 278-279
+src/mainbook_mcp/models.py          126      0      2      0   100%
+src/mainbook_mcp/output.py          175     41     44     14    73%   49, 54, 57-58, 87-88, 91, 93-94, 101, 104-105, 107, 123, 128-129, 134-135, 157, 168, 171, 173-179, 202, 207-208, 216-224, 226, 236
+src/mainbook_mcp/server.py          264     13     98      9    94%   86, 355, 422, 494-495, 547, 582-589, 597, 622-623, 735, 741
+-----------------------------------------------------------------------------
+TOTAL                              1390    128    364     54    89%
+FAIL Required test coverage of 90% not reached. Total coverage: 89.17%
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_files.py:171: distinct case-only directory names require a case-sensitive filesystem
+173 passed, 1 skipped in 1.20s

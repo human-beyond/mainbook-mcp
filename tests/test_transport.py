@@ -14,6 +14,7 @@ from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 
 from mainbook_mcp import __main__
+from mainbook_mcp import server as server_module
 from mainbook_mcp.server import create_server
 
 ENV_KEY = "mb_live_environment_fallback"
@@ -49,8 +50,13 @@ async def wait_for_port(port: int) -> None:
 async def test_http_header_key_overrides_environment_and_never_leaks_between_requests(
     monkeypatch,
 ) -> None:
-    """D8 task spec §§4 and 7: every HTTP tool call uses its own Authorization header."""
+    """HTTP uses only each request header and must never inspect local credential storage."""
     monkeypatch.setenv("MAINBOOK_API_KEY", ENV_KEY)
+    monkeypatch.setattr(
+        server_module,
+        "load_credential",
+        lambda api_base: (_ for _ in ()).throw(AssertionError("local storage was read")),
+    )
     captured_keys: list[str] = []
 
     @asynccontextmanager

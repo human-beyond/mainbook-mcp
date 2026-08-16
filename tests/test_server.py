@@ -13,7 +13,9 @@ import pytest
 from mcp import Client
 from pypdf import PdfWriter
 
+from mainbook_mcp import server as server_module
 from mainbook_mcp.client import PollOutcome
+from mainbook_mcp.credentials import StoredCredential
 from mainbook_mcp.errors import MainBookAPIError
 from mainbook_mcp.files import PDFSource
 from mainbook_mcp.server import create_server
@@ -152,9 +154,7 @@ class FakeAPIClient:
         self.calls.append(("start_job", job_id))
         return job("queued")
 
-    async def poll_job(
-        self, job_id: str, *, timeout_seconds: int, on_progress=None
-    ) -> PollOutcome:
+    async def poll_job(self, job_id: str, *, timeout_seconds: int, on_progress=None) -> PollOutcome:
         self.calls.append(("poll_job", (job_id, timeout_seconds)))
         return PollOutcome(job=job(self.state), timed_out=self.timed_out)
 
@@ -417,7 +417,11 @@ async def test_http_file_path_is_rejected_before_source_loader(monkeypatch) -> N
 @pytest.mark.asyncio
 async def test_http_file_url_still_reaches_source_loader(monkeypatch) -> None:
     """Review A: remote mode keeps the public-URL conversion path."""
-    monkeypatch.setenv("MAINBOOK_API_KEY", API_KEY)
+    monkeypatch.setattr(
+        server_module,
+        "_api_key_for_request",
+        lambda ctx, *, transport: API_KEY,
+    )
     fake = FakeAPIClient()
     loaded: list[object] = []
 
@@ -640,8 +644,9 @@ async def test_actionable_job_states_are_errors_without_internal_reasons(
 
 @pytest.mark.asyncio
 async def test_missing_key_is_an_mcp_error_before_client_creation(monkeypatch) -> None:
-    """D8 task spec §§4 and 6: stdio without MAINBOOK_API_KEY fails clearly."""
+    """Stdio without an environment or stored credential points to auth login."""
     monkeypatch.delenv("MAINBOOK_API_KEY", raising=False)
+    monkeypatch.setattr(server_module, "load_credential", lambda api_base: None)
     keys: list[str] = []
     server = server_with_fake(FakeAPIClient(), keys)
 
@@ -649,7 +654,7 @@ async def test_missing_key_is_an_mcp_error_before_client_creation(monkeypatch) -
         result = await client.call_tool("get_balance", {})
 
     assert result.is_error is True
-    assert "MAINBOOK_API_KEY" in result.content[0].text
+    assert "mainbook-mcp auth login" in result.content[0].text
     assert keys == []
 
 
@@ -721,17 +726,9 @@ async def test_http_without_any_key_never_reaches_the_source_loader(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_http_rejects_an_unusable_key_before_downloading(monkeypatch) -> None:
-    """Review D: holding *a* string is not authentication — verify it costs one cheap call.
-
-    Spec §6 requires an identical opaque failure for unknown and revoked keys,
-    so this path must not distinguish them either.
-    """
+    """HTTP ignores an environment key instead of treating server-local state as caller auth."""
     monkeypatch.setenv("MAINBOOK_API_KEY", API_KEY)
-    fake = FakeAPIClient(
-        error=MainBookAPIError(
-            "MainBook rejected the API key.", status_code=401, reason="invalid_key"
-        )
-    )
+    fake = FakeAPIClient()
     attempts: list[int] = []
 
     async with Client(http_server(fake, attempts)) as client:
@@ -742,7 +739,52 @@ async def test_http_rejects_an_unusable_key_before_downloading(monkeypatch) -> N
 
     assert result.is_error is True
     assert attempts == []
-    assert [name for name, _ in fake.calls] == ["get_balance"]
+    assert fake.calls == []
+
+
+@pytest.mark.asyncio
+async def test_stdio_environment_wins_without_reading_storage(monkeypatch) -> None:
+    monkeypatch.setenv("MAINBOOK_API_KEY", API_KEY)
+    monkeypatch.setattr(
+        server_module,
+        "load_credential",
+        lambda api_base: (_ for _ in ()).throw(AssertionError("storage was read")),
+    )
+    captured: list[str] = []
+
+    async with Client(server_with_fake(FakeAPIClient(), captured)) as client:
+        result = await client.call_tool("get_balance", {})
+
+    assert result.is_error is not True
+    assert captured == [API_KEY]
+
+
+@pytest.mark.asyncio
+async def test_stdio_uses_stored_credential_after_environment(monkeypatch) -> None:
+    monkeypatch.delenv("MAINBOOK_API_KEY", raising=False)
+    stored_key = "mb_live_stored_stdio_key"
+    bases: list[str] = []
+
+    def load_credential(api_base: str) -> StoredCredential:
+        bases.append(api_base)
+        return StoredCredential(
+            api_base=api_base,
+            api_key=stored_key,
+            client_name="MainBook MCP on test-host",
+            account=None,
+            created_at=None,
+            storage="file",
+        )
+
+    monkeypatch.setattr(server_module, "load_credential", load_credential)
+    captured: list[str] = []
+
+    async with Client(server_with_fake(FakeAPIClient(), captured)) as client:
+        result = await client.call_tool("get_balance", {})
+
+    assert result.is_error is not True
+    assert captured == [stored_key]
+    assert bases == ["https://mainbook.ai"]
 
 
 @pytest.mark.asyncio

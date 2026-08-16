@@ -14,6 +14,7 @@ import pytest
 from mcp import Client
 from pypdf import PdfWriter
 
+from mainbook_mcp import server as server_module
 from mainbook_mcp.client import PollOutcome
 from mainbook_mcp.errors import MainBookFileError
 from mainbook_mcp.files import PDFSource
@@ -121,9 +122,7 @@ class OutputAPI:
         self.calls.append(("start_job", job_id))
         return _job("queued")
 
-    async def poll_job(
-        self, job_id: str, *, timeout_seconds: int, on_progress=None
-    ) -> PollOutcome:
+    async def poll_job(self, job_id: str, *, timeout_seconds: int, on_progress=None) -> PollOutcome:
         self.calls.append(("poll_job", (job_id, timeout_seconds)))
         return PollOutcome(job=_job(), timed_out=False)
 
@@ -336,7 +335,9 @@ async def test_symlinked_parent_escaping_allowed_root_is_rejected(monkeypatch, t
 
 
 @pytest.mark.asyncio
-async def test_disallowed_saved_folder_is_ignored_with_visible_fallback(monkeypatch, tmp_path) -> None:
+async def test_disallowed_saved_folder_is_ignored_with_visible_fallback(
+    monkeypatch, tmp_path
+) -> None:
     monkeypatch.setenv("MAINBOOK_API_KEY", API_KEY)
     home = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home))
@@ -439,6 +440,11 @@ async def test_http_rejects_output_path_ignores_preferences_and_keeps_download_i
     monkeypatch, tmp_path
 ) -> None:
     monkeypatch.setenv("MAINBOOK_API_KEY", API_KEY)
+    monkeypatch.setattr(
+        server_module,
+        "_api_key_for_request",
+        lambda ctx, *, transport: API_KEY,
+    )
     home = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home))
     configured = tmp_path / "configured"
@@ -502,9 +508,7 @@ async def test_get_conversion_without_destination_explains_what_is_missing(
     )
 
     async with Client(server) as client:
-        result = await client.call_tool(
-            "get_conversion", {"job_id": JOB_ID, "result_type": "xlsx"}
-        )
+        result = await client.call_tool("get_conversion", {"job_id": JOB_ID, "result_type": "xlsx"})
 
     assert result.is_error is True
     text = result.content[0].text.lower()
