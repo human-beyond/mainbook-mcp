@@ -56,10 +56,16 @@ CONVERT_ANNOTATIONS = ToolAnnotations(
     open_world_hint=True,
 )
 READ_ANNOTATIONS = ToolAnnotations(read_only_hint=True, open_world_hint=True)
-GET_CONVERSION_ANNOTATIONS = ToolAnnotations(
+GET_CONVERSION_LOCAL_ANNOTATIONS = ToolAnnotations(
     read_only_hint=False,
     destructive_hint=False,
     idempotent_hint=False,
+    open_world_hint=True,
+)
+GET_CONVERSION_HOSTED_ANNOTATIONS = ToolAnnotations(
+    read_only_hint=True,
+    destructive_hint=False,
+    idempotent_hint=True,
     open_world_hint=True,
 )
 OUTPUT_FOLDER_ANNOTATIONS = ToolAnnotations(
@@ -102,6 +108,7 @@ def create_server(
     )
 
     @server.tool(
+        title="Convert bank statement",
         annotations=CONVERT_ANNOTATIONS,
         description=(
             "Convert one PDF bank statement through the complete MainBook workflow: create a job, "
@@ -258,6 +265,7 @@ def create_server(
             )
 
     @server.tool(
+        title="Get page-credit balance",
         annotations=READ_ANNOTATIONS,
         description=(
             "Return total, reserved, and available MainBook credits. Every value is measured in "
@@ -281,6 +289,7 @@ def create_server(
             ) from exc
 
     @server.tool(
+        title="List conversions",
         annotations=READ_ANNOTATIONS,
         description=(
             "List one cursor page of conversion jobs visible to the MainBook account. Pass the "
@@ -320,7 +329,12 @@ def create_server(
         )
 
     @server.tool(
-        annotations=GET_CONVERSION_ANNOTATIONS,
+        title="Get conversion",
+        annotations=(
+            GET_CONVERSION_HOSTED_ANNOTATIONS
+            if transport == "http"
+            else GET_CONVERSION_LOCAL_ANNOTATIONS
+        ),
         description=(
             "Get the current state of one MainBook conversion. When successful, return JSON inline "
             "or save XLSX/CSV locally over stdio. HTTP mode returns safe download instructions. "
@@ -385,14 +399,6 @@ def create_server(
                 allowed_roots=active_roots,
             )
 
-    @server.tool(
-        annotations=OUTPUT_FOLDER_ANNOTATIONS,
-        description=(
-            "Read or change the default local result folder. Call with no path to inspect the "
-            "current setting and allowed folders. Pass an allowed absolute folder, or "
-            "'next_to_source' to restore the default behavior."
-        ),
-    )
     async def output_folder(
         path: Annotated[
             str | None,
@@ -440,6 +446,17 @@ def create_server(
             allowed_folders=allowed,
             message=message,
         )
+
+    if transport == "stdio":
+        server.tool(
+            title="Manage output folder",
+            annotations=OUTPUT_FOLDER_ANNOTATIONS,
+            description=(
+                "Read or change the default local result folder. Call with no path to inspect the "
+                "current setting and allowed folders. Pass an allowed absolute folder, or "
+                "'next_to_source' to restore the default behavior."
+            ),
+        )(output_folder)
 
     return server
 

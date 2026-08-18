@@ -126,12 +126,14 @@ npx --yes @anthropic-ai/mcpb@2.1.2 pack . dist/mainbook.mcpb
 - `get_balance`: returns total, reserved, and available credits, all measured in PDF pages.
 - `output_folder`: reads or changes the default local result folder.
 
-All five are listed over both transports, but `output_folder` is a local setting: a remote HTTP
-client that calls it gets a clear refusal, so four of the five are useful over HTTP.
+Local stdio mode lists all five tools. Hosted HTTP mode lists exactly the first four;
+`output_folder` is not advertised remotely because the server's disk does not belong to the client.
 
 There are no tools for buying credits, payments, deleting jobs, or changing account data.
-Tools that can create a conversion, write a result file, or change the output preference are marked
-non-read-only. None is marked destructive because existing result files are never replaced.
+Tools that can create a conversion, write a local result file, or change the output preference are
+marked non-read-only. `get_conversion` is read-only over hosted HTTP, where it writes no file, and
+non-read-only over local stdio, where it may write XLSX or CSV. None is marked destructive because
+existing result files are never replaced.
 
 ## Where result files go
 

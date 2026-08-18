@@ -213,6 +213,13 @@ async def test_tools_expose_exact_names_annotations_and_nonopaque_schemas() -> N
         "get_conversion",
         "output_folder",
     ]
+    assert {name: tool.title for name, tool in tools.items()} == {
+        "convert_bank_statement": "Convert bank statement",
+        "get_balance": "Get page-credit balance",
+        "list_conversions": "List conversions",
+        "get_conversion": "Get conversion",
+        "output_folder": "Manage output folder",
+    }
     convert = tools["convert_bank_statement"]
     assert convert.annotations is not None
     assert convert.annotations.read_only_hint is False
@@ -252,6 +259,56 @@ async def test_tools_expose_exact_names_annotations_and_nonopaque_schemas() -> N
     assert output_folder.read_only_hint is False
     assert output_folder.destructive_hint is False
     assert output_folder.idempotent_hint is True
+
+
+@pytest.mark.asyncio
+async def test_hosted_mode_registers_four_tools_while_local_mode_registers_five() -> None:
+    async with (
+        Client(create_server(transport="stdio")) as local_client,
+        Client(create_server(transport="http")) as hosted_client,
+    ):
+        local = {tool.name: tool for tool in (await local_client.list_tools()).tools}
+        hosted = {tool.name: tool for tool in (await hosted_client.list_tools()).tools}
+
+    assert list(local) == [
+        "convert_bank_statement",
+        "get_balance",
+        "list_conversions",
+        "get_conversion",
+        "output_folder",
+    ]
+    assert list(hosted) == [
+        "convert_bank_statement",
+        "get_balance",
+        "list_conversions",
+        "get_conversion",
+    ]
+    for name in hosted:
+        assert hosted[name].input_schema == local[name].input_schema
+
+
+@pytest.mark.asyncio
+async def test_every_tool_has_a_title_and_get_conversion_hints_are_mode_honest() -> None:
+    async with (
+        Client(create_server(transport="stdio")) as local_client,
+        Client(create_server(transport="http")) as hosted_client,
+    ):
+        local = {tool.name: tool for tool in (await local_client.list_tools()).tools}
+        hosted = {tool.name: tool for tool in (await hosted_client.list_tools()).tools}
+
+    assert all(tool.title and tool.title.strip() for tool in local.values())
+    assert all(tool.title and tool.title.strip() for tool in hosted.values())
+
+    local_hints = local["get_conversion"].annotations
+    hosted_hints = hosted["get_conversion"].annotations
+    assert local_hints is not None
+    assert hosted_hints is not None
+    assert local_hints.read_only_hint is False
+    assert local_hints.idempotent_hint is False
+    assert hosted_hints.read_only_hint is True
+    assert hosted_hints.idempotent_hint is True
+    assert local_hints.destructive_hint is hosted_hints.destructive_hint is False
+    assert local_hints.open_world_hint is hosted_hints.open_world_hint is True
 
 
 @pytest.mark.asyncio

@@ -1,7 +1,7 @@
 {
   "name": "mainbook-bank-statement-converter",
   "displayName": "MainBook Bank Statement Converter",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Convert customer-supplied PDF bank statements to checked JSON, Excel, or CSV with balance validation through MainBook's official MCP server.",
   "author": {
     "name": "Human Beyond LLC",

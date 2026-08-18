@@ -603,16 +603,15 @@ async def test_output_folder_rejects_disallowed_path_without_changing_preference
 
 
 @pytest.mark.asyncio
-async def test_http_output_folder_is_rejected_as_a_local_only_setting(tmp_path) -> None:
+async def test_http_output_folder_is_not_registered(tmp_path) -> None:
     allowed = tmp_path / "allowed"
     allowed.mkdir()
     server = create_server(transport="http", allowed_roots=(allowed,))
 
     async with Client(server) as client:
-        result = await client.call_tool("output_folder", {"path": str(allowed)})
+        tools = {tool.name for tool in (await client.list_tools()).tools}
 
-    assert result.is_error is True
-    assert "stdio" in result.content[0].text.lower()
+    assert "output_folder" not in tools
 
 
 def test_result_write_refuses_a_folder_swapped_after_the_check(tmp_path) -> None:

@@ -4,6 +4,22 @@ All notable changes to this project are documented here. Versions follow
 [semantic versioning](https://semver.org/) and match the published
 [PyPI releases](https://pypi.org/project/mainbook-mcp/).
 
+## [0.5.1] — 2026-08-17
+
+### Added
+
+- Human-readable titles for every MCP tool.
+- The production live gate from the former backend copy, retained as a manual regression check.
+
+### Changed
+
+- Hosted HTTP mode now registers exactly four remote-capable tools and no longer advertises the
+  local-only `output_folder` tool.
+- `get_conversion` is marked read-only and idempotent in hosted mode, where it writes nothing;
+  local stdio keeps its non-read-only, non-idempotent hints because it may write a result file.
+- The public repository is now ready to be the source tree for both PyPI and the hosted Docker
+  image; terminal sign-in and per-request hosted `mb_live_` authentication remain intact.
+
 ## [0.5.0] — 2026-08-16
 
 ### Added
