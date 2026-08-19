@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import httpx2 as httpx
+import jwt
 import pytest
 
-from mainbook_mcp.client import MainBookClient
+from mainbook_mcp.client import MainBookClient, ServiceCredentialIssuer
 from mainbook_mcp.errors import MainBookAPIError, MainBookNetworkError
 
 API_KEY = "mb_live_test_material_never_real"
@@ -407,3 +409,80 @@ async def test_a_caller_supplied_header_cannot_drop_our_identification() -> None
     assert seen[0].headers["user-agent"] == USER_AGENT
     assert seen[0].headers["idempotency-key"] == "idem-1"
     assert seen[0].headers["authorization"] == f"Bearer {API_KEY}"
+
+
+@pytest.mark.asyncio
+async def test_oauth_uses_fresh_service_header_per_captured_api_request() -> None:
+    """The raw client token is absent from every actual header sent to Django."""
+    subject = "11111111-1111-4111-8111-111111111111"
+    secret = "service-door-secret-for-client-test"
+    client_token = "client-access-token-must-never-appear"
+    jwt_ids = iter(
+        [
+            "22222222-2222-4222-8222-222222222221",
+            "22222222-2222-4222-8222-222222222222",
+        ]
+    )
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"balance": 10, "reserved": 1, "available": 9})
+
+    issuer = ServiceCredentialIssuer(
+        subject=uuid.UUID(subject),
+        client_id="sample-public-client",
+        signing_secret=secret,
+        wall_clock=lambda: 1_787_140_800,
+        jwt_id=lambda: uuid.UUID(next(jwt_ids)),
+    )
+    async with MainBookClient(
+        service_credential=issuer,
+        base_url="https://stub.mainbook.test",
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        await client.get_balance()
+        await client.get_balance()
+
+    service_tokens = [request.headers["x-mainbook-service"] for request in seen]
+    assert len(set(service_tokens)) == 2
+    assert all("authorization" not in request.headers for request in seen)
+    assert all(client_token not in str(dict(request.headers)) for request in seen)
+    decoded = [
+        jwt.decode(
+            token,
+            secret,
+            algorithms=["HS256"],
+            audience="api.mainbook.ai",
+            issuer="mcp",
+            options={"verify_exp": False, "verify_iat": False},
+        )
+        for token in service_tokens
+    ]
+    assert all(item["sub"] == subject for item in decoded)
+    assert all(item["cid"] == "sample-public-client" for item in decoded)
+    assert all(item["exp"] - item["iat"] == 60 for item in decoded)
+    assert len({item["jti"] for item in decoded}) == 2
+
+
+@pytest.mark.asyncio
+async def test_service_door_401_marks_the_outer_oauth_request() -> None:
+    marked: list[bool] = []
+    issuer = ServiceCredentialIssuer(
+        subject=uuid.UUID("11111111-1111-4111-8111-111111111111"),
+        client_id="sample-public-client",
+        signing_secret="service-door-secret-for-client-test",
+        auth_failure=lambda: marked.append(True),
+    )
+
+    async with MainBookClient(
+        service_credential=issuer,
+        base_url="https://stub.mainbook.test",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(401, json={"detail": "invalid_key"})
+        ),
+    ) as client:
+        with pytest.raises(MainBookAPIError):
+            await client.get_balance()
+
+    assert marked == [True]

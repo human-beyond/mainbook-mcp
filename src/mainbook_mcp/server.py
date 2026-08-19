@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
@@ -14,9 +15,11 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
 from mcp_types import ToolAnnotations
 from pydantic import Field, ValidationError
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from . import __version__
-from .client import MainBookClient
+from .client import DeveloperCredential, MainBookClient, ServiceCredentialIssuer
 from .credentials import CredentialError, load_credential, resolve_api_base
 from .errors import MainBookError, MainBookFileError, MainBookNetworkError
 from .files import PDFSource, download_pdf_url, load_local_pdf, normalize_allowed_roots
@@ -35,6 +38,12 @@ from .models import (
     ResultType,
     SavedFile,
 )
+from .oauth_http import (
+    OAuthToolAuthMiddleware,
+    current_oauth_request_state,
+    decode_internal_identity,
+)
+from .oauth_verifier import SUPPORTED_SCOPES, OAuthSettings, OAuthTokenVerifier
 from .output import (
     NEXT_TO_SOURCE,
     OutputDestination,
@@ -46,7 +55,7 @@ from .output import (
     write_result_bytes,
 )
 
-ClientFactory = Callable[[str, str], AbstractAsyncContextManager[Any]]
+ClientFactory = Callable[[DeveloperCredential, str], AbstractAsyncContextManager[Any]]
 SourceLoader = Callable[[ConvertBankStatementInput], Awaitable[PDFSource]]
 
 CONVERT_ANNOTATIONS = ToolAnnotations(
@@ -75,6 +84,18 @@ OUTPUT_FOLDER_ANNOTATIONS = ToolAnnotations(
 )
 
 
+class OAuthAwareMCPServer(MCPServer):
+    """Wrap only Streamable HTTP with lazy per-tool OAuth authentication."""
+
+    def __init__(self, *args: Any, oauth_verifier: OAuthTokenVerifier, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._mainbook_oauth_verifier = oauth_verifier
+
+    def streamable_http_app(self, **kwargs: Any):  # type: ignore[no-untyped-def]
+        app = super().streamable_http_app(**kwargs)
+        return OAuthToolAuthMiddleware(app, self._mainbook_oauth_verifier)
+
+
 def create_server(
     *,
     transport: Literal["stdio", "http"],
@@ -82,11 +103,22 @@ def create_server(
     client_factory: ClientFactory | None = None,
     source_loader: SourceLoader | None = None,
     api_base: str | None = None,
+    oauth_settings: OAuthSettings | None = None,
+    oauth_verifier: OAuthTokenVerifier | None = None,
 ) -> MCPServer:
     """Build an isolated server; injected dependencies keep contract tests deterministic."""
     make_client = client_factory or _default_client_factory
     active_roots = normalize_allowed_roots(allowed_roots)
     resolved_api_base = resolve_api_base(api_base)
+    active_oauth = (
+        oauth_settings
+        if oauth_settings is not None
+        else (OAuthSettings.from_env() if transport == "http" else OAuthSettings())
+    )
+    active_oauth.validate()
+    verifier = oauth_verifier
+    if transport == "http" and active_oauth.enabled and verifier is None:
+        verifier = OAuthTokenVerifier(active_oauth)
 
     async def load_default_source(request: ConvertBankStatementInput) -> PDFSource:
         if request.file_path is not None:
@@ -94,7 +126,22 @@ def create_server(
         return await _default_source_loader(request)
 
     load_source = source_loader or load_default_source
-    server = MCPServer(
+
+    def request_credential(ctx: Context) -> DeveloperCredential:
+        if active_oauth.enabled:
+            return _api_key_for_request(
+                ctx,
+                transport=transport,
+                api_base=resolved_api_base,
+                oauth_settings=active_oauth,
+            )
+        return _api_key_for_request(ctx, transport=transport, api_base=resolved_api_base)
+
+    server_type = OAuthAwareMCPServer if verifier is not None and active_oauth.enabled else MCPServer
+    server_kwargs: dict[str, Any] = {}
+    if server_type is OAuthAwareMCPServer:
+        server_kwargs["oauth_verifier"] = verifier
+    server = server_type(
         name="mainbook",
         title="MainBook Bank Statement Converter",
         description=(
@@ -105,7 +152,29 @@ def create_server(
             "not call it speculatively. Use get_conversion after a timeout."
         ),
         version=__version__,
+        **server_kwargs,
     )
+
+    if transport == "http" and active_oauth.enabled:
+
+        @server.custom_route(
+            "/.well-known/oauth-protected-resource/mcp",
+            methods=["GET"],
+        )
+        async def protected_resource_metadata(request: Request) -> JSONResponse:
+            del request
+            return JSONResponse(
+                {
+                    "resource": active_oauth.resource,
+                    "authorization_servers": [active_oauth.issuer],
+                    "scopes_supported": list(SUPPORTED_SCOPES),
+                    "bearer_methods_supported": ["header"],
+                },
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Cache-Control": "public, max-age=3600",
+                },
+            )
 
     @server.tool(
         title="Convert bank statement",
@@ -205,7 +274,7 @@ def create_server(
         # caller is untrusted, so an anonymous or unusable key must never cost us a
         # disk read or 50 MB of egress; holding *a* string is not authentication,
         # hence the one cheap balance call that makes the API itself judge the key.
-        api_key = _api_key_for_request(ctx, transport=transport, api_base=resolved_api_base)
+        api_key = request_credential(ctx)
         base_url = resolved_api_base
         async with make_client(api_key, base_url) as api:
             if transport == "http":
@@ -273,7 +342,7 @@ def create_server(
         ),
     )
     async def get_balance(ctx: Context) -> BalanceOutput:
-        api_key = _api_key_for_request(ctx, transport=transport, api_base=resolved_api_base)
+        api_key = request_credential(ctx)
         async with make_client(api_key, resolved_api_base) as api:
             raw = await api.get_balance()
         try:
@@ -308,7 +377,7 @@ def create_server(
         ] = None,
     ) -> ListConversionsOutput:
         request = ListConversionsInput(limit=limit, cursor=cursor)
-        api_key = _api_key_for_request(ctx, transport=transport, api_base=resolved_api_base)
+        api_key = request_credential(ctx)
         async with make_client(api_key, resolved_api_base) as api:
             raw = await api.list_jobs(limit=request.limit, cursor=request.cursor)
         results = raw.get("results")
@@ -377,7 +446,7 @@ def create_server(
             allowed_roots=active_roots,
             transport=transport,
         )
-        api_key = _api_key_for_request(ctx, transport=transport, api_base=resolved_api_base)
+        api_key = request_credential(ctx)
         base_url = resolved_api_base
         async with make_client(api_key, base_url) as api:
             raw_job = await api.get_job(request.job_id)
@@ -492,8 +561,10 @@ async def _default_source_loader(request: ConvertBankStatementInput) -> PDFSourc
     return await download_pdf_url(request.file_url)
 
 
-def _default_client_factory(api_key: str, base_url: str) -> MainBookClient:
-    return MainBookClient(api_key=api_key, base_url=base_url)
+def _default_client_factory(credential: DeveloperCredential, base_url: str) -> MainBookClient:
+    if isinstance(credential, ServiceCredentialIssuer):
+        return MainBookClient(service_credential=credential, base_url=base_url)
+    return MainBookClient(api_key=credential, base_url=base_url)
 
 
 def _api_key_for_request(
@@ -501,15 +572,43 @@ def _api_key_for_request(
     *,
     transport: Literal["stdio", "http"],
     api_base: str,
-) -> str:
+    oauth_settings: OAuthSettings | None = None,
+) -> DeveloperCredential:
     if transport == "http":
+        internal_identity = _header(ctx.headers, "x-mainbook-internal-oauth")
+        if internal_identity is not None and oauth_settings is not None and oauth_settings.enabled:
+            identity = decode_internal_identity(internal_identity)
+            if identity is None:
+                raise MainBookError("HTTP tool authentication failed.")
+            raw_subject, client_id = identity
+            try:
+                subject = uuid.UUID(raw_subject)
+            except ValueError:
+                raise MainBookError("HTTP tool authentication failed.") from None
+            return ServiceCredentialIssuer(
+                subject=subject,
+                client_id=client_id,
+                signing_secret=oauth_settings.service_signing_secret,
+                auth_failure=(
+                    state.mark_downstream_auth_failed
+                    if (state := current_oauth_request_state.get()) is not None
+                    else None
+                ),
+            )
         authorization = _header(ctx.headers, "authorization")
         if authorization is None:
             raise MainBookError("HTTP tool calls require an Authorization: Bearer <key> header.")
         scheme, separator, token = authorization.partition(" ")
         if scheme.lower() != "bearer" or not separator or not token.strip():
             raise MainBookError("Authorization must use a non-empty Bearer API key.")
-        return token.strip()
+        credential = token.strip()
+        if (
+            oauth_settings is not None
+            and oauth_settings.enabled
+            and not credential.startswith("mb_live_")
+        ):
+            raise MainBookError("HTTP tool authentication failed.")
+        return credential
     fallback = os.getenv("MAINBOOK_API_KEY", "").strip()
     if fallback:
         return fallback

@@ -229,6 +229,20 @@ default_tools_approval_mode = "writes"
 Replace the URL with your own host if you deploy this yourself; a self-hosted deployment still needs
 normal HTTPS termination and access controls.
 
+### OAuth verifier dark launch
+
+The source tree contains an OAuth resource-server path for hosted deployments, but it is disabled by
+default and is not a promise that account login is available on `mcp.mainbook.ai`. When explicitly
+enabled, `initialize` and `tools/list` remain public, while each tool call accepts either an existing
+`mb_live_` key or a MainBook RS256 access token. OAuth tokens are verified locally against only the
+configured MainBook JWKS URL; they are never forwarded to the Developer API. The MCP server sends a
+fresh 60-second `X-MainBook-Service` credential for every internal REST request instead.
+
+The hosted tool scopes are fixed in one map: `convert_bank_statement` requires
+`mainbook:convert`; `get_balance`, `get_conversion`, and `list_conversions` require
+`mainbook:read`. Protected-resource metadata is published at
+`/.well-known/oauth-protected-resource/mcp` only while the flag is enabled.
+
 ## Environment variables
 
 - `MAINBOOK_API_KEY`: optional in stdio and takes precedence over a stored login; ignored in HTTP
@@ -242,6 +256,21 @@ normal HTTPS termination and access controls.
 - `MAINBOOK_MCP_TRANSPORT`: `stdio` (default) or `http`.
 - `MAINBOOK_MCP_HOST`: HTTP bind host, default `127.0.0.1`.
 - `MAINBOOK_MCP_PORT`: HTTP bind port, default `8000`.
+- `MAINBOOK_MCP_OAUTH_ENABLED`: hosted OAuth verifier feature flag, default `false`. With the flag
+  off, metadata is absent and hosted Bearer handling remains the legacy `mb_live_` behavior.
+- `MAINBOOK_MCP_OAUTH_ISSUER`: exact trusted issuer, default `https://api.mainbook.ai`.
+- `MAINBOOK_MCP_OAUTH_JWKS_URL`: trusted JWKS URL, default
+  `https://api.mainbook.ai/.well-known/jwks.json`. Token header URLs are ignored.
+- `MAINBOOK_MCP_OAUTH_RESOURCE`: exact audience/resource, default
+  `https://mcp.mainbook.ai/mcp`.
+- `MAINBOOK_MCP_OAUTH_CLOCK_SKEW_SECONDS`: NumericDate clock allowance, default `5`.
+- `MAINBOOK_MCP_OAUTH_MAX_TOKEN_AGE_SECONDS`: maximum accepted age from `iat`, default `600`.
+- `MAINBOOK_MCP_OAUTH_JWKS_CACHE_TTL_SECONDS`: JWKS cache lifetime, default `300`.
+- `MAINBOOK_MCP_OAUTH_JWKS_REFRESH_MIN_INTERVAL_SECONDS`: minimum interval between unknown-`kid`
+  refresh attempts, default `30`.
+- `MCP_SERVICE_SIGNING_SECRETS`: comma-separated service-door secrets. MCP signs with the first;
+  Django may accept current and previous values during rotation. Required when OAuth is enabled;
+  never commit it.
 
 ## File and network safety
 
