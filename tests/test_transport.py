@@ -477,3 +477,57 @@ def test_cli_allowed_dirs_use_existing_defaults_last(monkeypatch, tmp_path) -> N
     roots = __main__.resolve_allowed_roots(())
 
     assert roots == (downloads.resolve(), documents.resolve())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("oauth_enabled", [False, True])
+async def test_standalone_get_is_refused_instead_of_hanging_forever(
+    oauth_enabled: bool,
+) -> None:
+    """A GET must answer 405, not hold a stream that this server can never speak on.
+
+    We run `stateless_http=True`, so there are no server-initiated messages, but the SDK
+    still accepts GET and keeps the connection open. Codex CLI probes with GET during
+    OAuth discovery and hangs there; the same hang reproduces on production.
+    The spec: a server that offers no SSE stream at this endpoint MUST return 405.
+    """
+    oauth_settings = OAuthSettings(
+        enabled=oauth_enabled,
+        service_signing_secret="service-secret-for-test" if oauth_enabled else "",
+    )
+    server = create_server(
+        transport="http",
+        oauth_settings=oauth_settings,
+        oauth_verifier=NeverVerifier() if oauth_enabled else None,  # type: ignore[arg-type]
+    )
+    port = free_port()
+    task = asyncio.create_task(
+        server.run_streamable_http_async(
+            host="127.0.0.1",
+            port=port,
+            json_response=True,
+            stateless_http=True,
+        )
+    )
+    await wait_for_port(port)
+
+    try:
+        async with httpx2.AsyncClient(timeout=5.0) as http_client:
+            refused = await http_client.get(
+                f"http://127.0.0.1:{port}/mcp",
+                headers={"Accept": "text/event-stream"},
+            )
+            assert refused.status_code == 405
+            assert refused.headers["allow"] == "POST"
+
+            # The discovery document is also a GET and must keep working.
+            if oauth_enabled:
+                metadata = await http_client.get(
+                    f"http://127.0.0.1:{port}/.well-known/oauth-protected-resource/mcp"
+                )
+                assert metadata.status_code == 200
+                assert metadata.json()["resource"] == oauth_settings.resource
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task

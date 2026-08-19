@@ -23,6 +23,7 @@ from .client import DeveloperCredential, MainBookClient, ServiceCredentialIssuer
 from .credentials import CredentialError, load_credential, resolve_api_base
 from .errors import MainBookError, MainBookFileError, MainBookNetworkError
 from .files import PDFSource, download_pdf_url, load_local_pdf, normalize_allowed_roots
+from .http_transport import StandaloneGetRejectionMiddleware
 from .models import (
     DEFAULT_POLL_SECONDS,
     BalanceOutput,
@@ -84,7 +85,20 @@ OUTPUT_FOLDER_ANNOTATIONS = ToolAnnotations(
 )
 
 
-class OAuthAwareMCPServer(MCPServer):
+class StatelessHTTPMCPServer(MCPServer):
+    """Streamable HTTP with the standalone-GET hang closed off."""
+
+    def streamable_http_app(self, **kwargs: Any):  # type: ignore[no-untyped-def]
+        app = super().streamable_http_app(**kwargs)
+        if not kwargs.get("stateless_http", False):
+            return app
+        return StandaloneGetRejectionMiddleware(
+            app,
+            endpoint_path=kwargs.get("streamable_http_path", "/mcp"),
+        )
+
+
+class OAuthAwareMCPServer(StatelessHTTPMCPServer):
     """Wrap only Streamable HTTP with lazy per-tool OAuth authentication."""
 
     def __init__(
@@ -148,9 +162,13 @@ def create_server(
             )
         return _api_key_for_request(ctx, transport=transport, api_base=resolved_api_base)
 
-    server_type = (
-        OAuthAwareMCPServer if verifier is not None and active_oauth.enabled else MCPServer
-    )
+    server_type: type[MCPServer]
+    if verifier is not None and active_oauth.enabled:
+        server_type = OAuthAwareMCPServer
+    elif transport == "http":
+        server_type = StatelessHTTPMCPServer
+    else:
+        server_type = MCPServer
     server_kwargs: dict[str, Any] = {}
     if server_type is OAuthAwareMCPServer:
         server_kwargs["oauth_verifier"] = verifier
