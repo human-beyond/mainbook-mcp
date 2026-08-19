@@ -268,6 +268,8 @@ async def test_real_oauth_tool_call_sends_only_service_credential_to_developer_a
     )
     assert service_claims["sub"] == "11111111-1111-4111-8111-111111111111"
     assert service_claims["cid"] == "sample-public-client"
+    assert service_claims["src"] == "oauth"
+    assert service_claims["gid"] == "33333333-3333-4333-8333-333333333333"
     assert service_claims["exp"] - service_claims["iat"] == 60
 
 

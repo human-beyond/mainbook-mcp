@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 
@@ -189,7 +190,7 @@ async def test_verified_identity_marker_is_internal_and_contains_no_client_token
     internal = [value for name, value in calls[0]["headers"] if name == INTERNAL_OAUTH_HEADER]
     assert len(internal) == 1
     identity = decode_internal_identity(internal[0].decode("ascii"))
-    assert identity == (SUBJECT, "client-1")
+    assert identity == (SUBJECT, "client-1", "consent-1")
     assert client_token.encode() not in internal[0]
 
 
@@ -216,6 +217,68 @@ async def test_downstream_inactive_or_revoked_state_becomes_the_same_opaque_401(
     assert response.status_code == 401
     assert response.content == b'{"error":"invalid_token"}'
     assert response.headers["www-authenticate"] == f'Bearer resource_metadata="{METADATA}"'
+
+
+@pytest.mark.asyncio
+async def test_progress_reaches_client_before_handler_finishes() -> None:
+    """The middleware must not buffer progress or the eventual XLSX response."""
+    handler_may_finish = asyncio.Event()
+    progress_reached_client = asyncio.Event()
+
+    async def downstream(scope, receive, send) -> None:
+        del scope, receive
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b'{"progress":25}\n',
+                "more_body": True,
+            }
+        )
+        await handler_may_finish.wait()
+        await send({"type": "http.response.body", "body": b'{"done":true}'})
+
+    app = OAuthToolAuthMiddleware(downstream, StubVerifier())
+    request_sent = False
+
+    async def receive():
+        nonlocal request_sent
+        if request_sent:
+            return {"type": "http.disconnect"}
+        request_sent = True
+        return {
+            "type": "http.request",
+            "body": b'{"jsonrpc":"2.0","id":1,"method":"tools/call",'
+            b'"params":{"name":"convert_bank_statement","arguments":{}}}',
+            "more_body": False,
+        }
+
+    messages = []
+
+    async def send(message):
+        messages.append(message)
+        if message["type"] == "http.response.body" and b"progress" in message.get(
+            "body", b""
+        ):
+            progress_reached_client.set()
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": [(b"authorization", b"Bearer signed-token")],
+    }
+    task = asyncio.create_task(app(scope, receive, send))
+    await asyncio.wait_for(progress_reached_client.wait(), timeout=0.25)
+    assert not task.done()
+    handler_may_finish.set()
+    await task
+
+    assert [message["type"] for message in messages] == [
+        "http.response.start",
+        "http.response.body",
+        "http.response.body",
+    ]
 
 
 def test_every_hosted_tool_has_one_declared_scope() -> None:
