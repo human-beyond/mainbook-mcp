@@ -432,6 +432,7 @@ async def test_oauth_uses_fresh_service_header_per_captured_api_request() -> Non
     issuer = ServiceCredentialIssuer(
         subject=uuid.UUID(subject),
         client_id="sample-public-client",
+        consent_id="33333333-3333-4333-8333-333333333333",
         signing_secret=secret,
         wall_clock=lambda: 1_787_140_800,
         jwt_id=lambda: uuid.UUID(next(jwt_ids)),
@@ -471,6 +472,7 @@ async def test_service_door_401_marks_the_outer_oauth_request() -> None:
     issuer = ServiceCredentialIssuer(
         subject=uuid.UUID("11111111-1111-4111-8111-111111111111"),
         client_id="sample-public-client",
+        consent_id="33333333-3333-4333-8333-333333333333",
         signing_secret="service-door-secret-for-client-test",
         auth_failure=lambda: marked.append(True),
     )

@@ -137,7 +137,9 @@ def create_server(
             )
         return _api_key_for_request(ctx, transport=transport, api_base=resolved_api_base)
 
-    server_type = OAuthAwareMCPServer if verifier is not None and active_oauth.enabled else MCPServer
+    server_type = (
+        OAuthAwareMCPServer if verifier is not None and active_oauth.enabled else MCPServer
+    )
     server_kwargs: dict[str, Any] = {}
     if server_type is OAuthAwareMCPServer:
         server_kwargs["oauth_verifier"] = verifier
@@ -580,7 +582,7 @@ def _api_key_for_request(
             identity = decode_internal_identity(internal_identity)
             if identity is None:
                 raise MainBookError("HTTP tool authentication failed.")
-            raw_subject, client_id = identity
+            raw_subject, client_id, consent_id = identity
             try:
                 subject = uuid.UUID(raw_subject)
             except ValueError:
@@ -588,6 +590,7 @@ def _api_key_for_request(
             return ServiceCredentialIssuer(
                 subject=subject,
                 client_id=client_id,
+                consent_id=consent_id,
                 signing_secret=oauth_settings.service_signing_secret,
                 auth_failure=(
                     state.mark_downstream_auth_failed

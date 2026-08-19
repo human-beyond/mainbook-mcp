@@ -106,23 +106,35 @@ class OAuthToolAuthMiddleware:
             return
 
         state = OAuthRequestState()
-        buffered_messages: list[Message] = []
+        pending_start: Message | None = None
+        response_committed = False
 
-        async def buffered_send(message: Message) -> None:
-            buffered_messages.append(message)
+        async def guarded_send(message: Message) -> None:
+            """Delay only headers, then preserve downstream streaming verbatim."""
+            nonlocal pending_start, response_committed
+            if message["type"] == "http.response.start":
+                pending_start = message
+                return
+            if message["type"] == "http.response.body" and not response_committed:
+                if state.downstream_auth_failed:
+                    return
+                if pending_start is None:
+                    raise RuntimeError("Response body sent before response start")
+                await send(pending_start)
+                pending_start = None
+                response_committed = True
+            await send(message)
 
         marker = current_oauth_request_state.set(state)
         try:
-            await self._app(
-                _with_internal_identity(clean_scope, verified), replay, buffered_send
-            )
+            await self._app(_with_internal_identity(clean_scope, verified), replay, guarded_send)
         finally:
             current_oauth_request_state.reset(marker)
-        if state.downstream_auth_failed:
+        if state.downstream_auth_failed and not response_committed:
             await _send_error(send, status=401, body=INVALID_TOKEN_BODY)
             return
-        for message in buffered_messages:
-            await send(message)
+        if pending_start is not None and not response_committed:
+            await send(pending_start)
 
 
 async def _buffer_body(receive: Receive) -> tuple[bytes, Receive]:
@@ -188,7 +200,11 @@ def _without_internal_header(scope: Scope) -> Scope:
 
 def _with_internal_identity(scope: Scope, token: VerifiedOAuthToken) -> Scope:
     payload = json.dumps(
-        {"sub": str(token.subject), "client_id": token.client_id},
+        {
+            "sub": str(token.subject),
+            "client_id": token.client_id,
+            "consent_id": token.consent_id,
+        },
         separators=(",", ":"),
     ).encode("utf-8")
     encoded = base64.urlsafe_b64encode(payload).rstrip(b"=")
@@ -197,7 +213,7 @@ def _with_internal_identity(scope: Scope, token: VerifiedOAuthToken) -> Scope:
     return marked
 
 
-def decode_internal_identity(value: str) -> tuple[str, str] | None:
+def decode_internal_identity(value: str) -> tuple[str, str, str] | None:
     """Decode only the marker injected after successful verification."""
     try:
         padded = value + "=" * (-len(value) % 4)
@@ -208,9 +224,10 @@ def decode_internal_identity(value: str) -> tuple[str, str] | None:
         return None
     subject = payload.get("sub")
     client_id = payload.get("client_id")
-    if not isinstance(subject, str) or not isinstance(client_id, str):
+    consent_id = payload.get("consent_id")
+    if not all(isinstance(item, str) for item in (subject, client_id, consent_id)):
         return None
-    return subject, client_id
+    return subject, client_id, consent_id
 
 
 async def _send_error(

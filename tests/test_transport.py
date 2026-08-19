@@ -132,9 +132,9 @@ async def test_http_header_key_overrides_environment_and_never_leaks_between_req
 @pytest.mark.asyncio
 async def test_resource_metadata_exists_only_when_oauth_flag_is_enabled() -> None:
     enabled = OAuthSettings(enabled=True, service_signing_secret="service-secret-for-test")
-    enabled_app = create_server(
-        transport="http", oauth_settings=enabled
-    ).streamable_http_app(stateless_http=True, json_response=True)
+    enabled_app = create_server(transport="http", oauth_settings=enabled).streamable_http_app(
+        stateless_http=True, json_response=True
+    )
     disabled_app = create_server(
         transport="http", oauth_settings=OAuthSettings()
     ).streamable_http_app(stateless_http=True, json_response=True)
@@ -243,9 +243,7 @@ async def test_real_oauth_tool_call_sends_only_service_credential_to_developer_a
                 headers={"Authorization": f"Bearer {raw_client_token}"}
             ) as http_client,
             Client(
-                streamable_http_client(
-                    f"http://127.0.0.1:{port}/mcp", http_client=http_client
-                )
+                streamable_http_client(f"http://127.0.0.1:{port}/mcp", http_client=http_client)
             ) as client,
         ):
             result = await client.call_tool("get_balance", {})
@@ -268,6 +266,8 @@ async def test_real_oauth_tool_call_sends_only_service_credential_to_developer_a
     )
     assert service_claims["sub"] == "11111111-1111-4111-8111-111111111111"
     assert service_claims["cid"] == "sample-public-client"
+    assert service_claims["src"] == "oauth"
+    assert service_claims["gid"] == "33333333-3333-4333-8333-333333333333"
     assert service_claims["exp"] - service_claims["iat"] == 60
 
 
@@ -316,9 +316,7 @@ async def test_real_service_door_401_is_the_same_outer_oauth_401() -> None:
                 event_hooks={"response": [record_response]},
             ) as http_client,
             Client(
-                streamable_http_client(
-                    f"http://127.0.0.1:{port}/mcp", http_client=http_client
-                )
+                streamable_http_client(f"http://127.0.0.1:{port}/mcp", http_client=http_client)
             ) as client,
         ):
             with pytest.raises(MCPError):
