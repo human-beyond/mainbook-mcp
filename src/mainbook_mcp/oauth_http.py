@@ -50,9 +50,18 @@ current_oauth_request_state: ContextVar[OAuthRequestState | None] = ContextVar(
 class OAuthToolAuthMiddleware:
     """Authenticate ``tools/call`` while leaving discovery and tool listing public."""
 
-    def __init__(self, app: ASGIApp, verifier: OAuthTokenVerifier) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        verifier: OAuthTokenVerifier,
+        *,
+        metadata_url: str = PROTECTED_RESOURCE_METADATA_URL,
+    ) -> None:
         self._app = app
         self._verifier = verifier
+        # Never the production constant by accident: a stand that points clients at
+        # production's metadata sends them to the wrong authorization server.
+        self._metadata_url = metadata_url
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or scope.get("method") != "POST":
@@ -72,7 +81,12 @@ class OAuthToolAuthMiddleware:
                 "mcp_oauth_auth_failed",
                 extra={"reason": "missing_or_malformed_authorization", "tool": tool_name},
             )
-            await _send_error(send, status=401, body=INVALID_TOKEN_BODY)
+            await _send_error(
+                send,
+                status=401,
+                body=INVALID_TOKEN_BODY,
+                metadata_url=self._metadata_url,
+            )
             return
 
         # Legacy keys keep their byte-for-byte downstream path. Django remains
@@ -88,7 +102,12 @@ class OAuthToolAuthMiddleware:
                 "mcp_oauth_auth_failed",
                 extra={"reason": exc.reason, "tool": tool_name},
             )
-            await _send_error(send, status=401, body=INVALID_TOKEN_BODY)
+            await _send_error(
+                send,
+                status=401,
+                body=INVALID_TOKEN_BODY,
+                metadata_url=self._metadata_url,
+            )
             return
 
         required_scope = TOOL_SCOPES.get(tool_name)
@@ -101,6 +120,7 @@ class OAuthToolAuthMiddleware:
                 send,
                 status=403,
                 body=INSUFFICIENT_SCOPE_BODY,
+                metadata_url=self._metadata_url,
                 required_scope=required_scope,
             )
             return
@@ -131,7 +151,12 @@ class OAuthToolAuthMiddleware:
         finally:
             current_oauth_request_state.reset(marker)
         if state.downstream_auth_failed and not response_committed:
-            await _send_error(send, status=401, body=INVALID_TOKEN_BODY)
+            await _send_error(
+                send,
+                status=401,
+                body=INVALID_TOKEN_BODY,
+                metadata_url=self._metadata_url,
+            )
             return
         if pending_start is not None and not response_committed:
             await send(pending_start)
@@ -235,14 +260,15 @@ async def _send_error(
     *,
     status: int,
     body: bytes,
+    metadata_url: str,
     required_scope: str | None = None,
 ) -> None:
-    challenge = f'Bearer resource_metadata="{PROTECTED_RESOURCE_METADATA_URL}"'
+    challenge = f'Bearer resource_metadata="{metadata_url}"'
     if required_scope is not None:
         challenge = (
             'Bearer error="insufficient_scope", '
             f'scope="{required_scope}", '
-            f'resource_metadata="{PROTECTED_RESOURCE_METADATA_URL}"'
+            f'resource_metadata="{metadata_url}"'
         )
     await send(
         {

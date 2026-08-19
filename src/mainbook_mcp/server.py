@@ -87,13 +87,24 @@ OUTPUT_FOLDER_ANNOTATIONS = ToolAnnotations(
 class OAuthAwareMCPServer(MCPServer):
     """Wrap only Streamable HTTP with lazy per-tool OAuth authentication."""
 
-    def __init__(self, *args: Any, oauth_verifier: OAuthTokenVerifier, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        oauth_verifier: OAuthTokenVerifier,
+        oauth_metadata_url: str,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self._mainbook_oauth_verifier = oauth_verifier
+        self._mainbook_oauth_metadata_url = oauth_metadata_url
 
     def streamable_http_app(self, **kwargs: Any):  # type: ignore[no-untyped-def]
         app = super().streamable_http_app(**kwargs)
-        return OAuthToolAuthMiddleware(app, self._mainbook_oauth_verifier)
+        return OAuthToolAuthMiddleware(
+            app,
+            self._mainbook_oauth_verifier,
+            metadata_url=self._mainbook_oauth_metadata_url,
+        )
 
 
 def create_server(
@@ -143,6 +154,7 @@ def create_server(
     server_kwargs: dict[str, Any] = {}
     if server_type is OAuthAwareMCPServer:
         server_kwargs["oauth_verifier"] = verifier
+        server_kwargs["oauth_metadata_url"] = active_oauth.metadata_url
     server = server_type(
         name="mainbook",
         title="MainBook Bank Statement Converter",
@@ -158,9 +170,9 @@ def create_server(
     )
 
     if transport == "http" and active_oauth.enabled:
-
+        # Path derived from the configured resource, not pinned to production's /mcp.
         @server.custom_route(
-            "/.well-known/oauth-protected-resource/mcp",
+            urlsplit(active_oauth.metadata_url).path,
             methods=["GET"],
         )
         async def protected_resource_metadata(request: Request) -> JSONResponse:

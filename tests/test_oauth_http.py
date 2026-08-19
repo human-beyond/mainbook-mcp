@@ -307,3 +307,51 @@ async def test_security_logs_contain_reason_but_no_token_secret_or_code(caplog) 
     assert "secret" not in rendered
     assert "code" not in rendered
     assert any(getattr(record, "reason", None) == "expired" for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_challenge_points_at_the_configured_resource_not_production() -> None:
+    """A stand must send clients to its OWN metadata; the hint was hardcoded to production."""
+    stand_metadata = "https://stand.example.test/.well-known/oauth-protected-resource/mcp"
+    downstream_calls: list[dict[str, object]] = []
+
+    async def downstream(scope, receive, send) -> None:  # pragma: no cover - never reached
+        downstream_calls.append(scope)
+
+    app = OAuthToolAuthMiddleware(
+        downstream,
+        StubVerifier(failure="invalid_token"),
+        metadata_url=stand_metadata,
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://stand.example.test"
+    ) as client:
+        refused = await client.post(
+            "/mcp",
+            json=tool_request("get_balance"),
+            headers={"authorization": "Bearer whatever"},
+        )
+
+    assert refused.status_code == 401
+    assert refused.headers["www-authenticate"] == f'Bearer resource_metadata="{stand_metadata}"'
+    assert "mcp.mainbook.ai" not in refused.headers["www-authenticate"]
+    assert downstream_calls == []
+
+
+def test_metadata_url_is_derived_from_the_resource_and_keeps_production_unchanged() -> None:
+    """RFC 9728 inserts the well-known segment before the resource path."""
+    from mainbook_mcp.oauth_verifier import (
+        DEFAULT_RESOURCE,
+        PROTECTED_RESOURCE_METADATA_URL,
+        protected_resource_metadata_url,
+    )
+
+    assert protected_resource_metadata_url(DEFAULT_RESOURCE) == PROTECTED_RESOURCE_METADATA_URL
+    assert (
+        protected_resource_metadata_url("https://tears-sharp.trycloudflare.com/mcp")
+        == "https://tears-sharp.trycloudflare.com/.well-known/oauth-protected-resource/mcp"
+    )
+    assert (
+        protected_resource_metadata_url("https://stand.example.test:8443/mcp/")
+        == "https://stand.example.test:8443/.well-known/oauth-protected-resource/mcp"
+    )

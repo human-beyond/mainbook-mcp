@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx2 as httpx
 import jwt
@@ -18,9 +18,25 @@ import jwt
 DEFAULT_ISSUER = "https://api.mainbook.ai"
 DEFAULT_JWKS_URL = "https://api.mainbook.ai/.well-known/jwks.json"
 DEFAULT_RESOURCE = "https://mcp.mainbook.ai/mcp"
-PROTECTED_RESOURCE_METADATA_URL = (
-    "https://mcp.mainbook.ai/.well-known/oauth-protected-resource/mcp"
-)
+
+
+def protected_resource_metadata_url(resource: str) -> str:
+    """Build the RFC 9728 metadata URL for ``resource``.
+
+    The well-known segment goes BEFORE the resource path, so a resource of
+    ``https://host/mcp`` is described at
+    ``https://host/.well-known/oauth-protected-resource/mcp``. Deriving it is not
+    cosmetic: a hardcoded production URL sends every client of any other
+    deployment to production's authorization server instead of its own.
+    """
+    parts = urlsplit(resource)
+    path = parts.path.rstrip("/")
+    return urlunsplit(
+        (parts.scheme, parts.netloc, f"/.well-known/oauth-protected-resource{path}", "", "")
+    )
+
+
+PROTECTED_RESOURCE_METADATA_URL = protected_resource_metadata_url(DEFAULT_RESOURCE)
 SUPPORTED_SCOPES = ("mainbook:convert", "mainbook:read")
 MAX_TOKEN_BYTES = 8192
 MAX_JWKS_BYTES = 256 * 1024
@@ -102,9 +118,7 @@ class OAuthSettings:
             issuer=current.get("MAINBOOK_MCP_OAUTH_ISSUER", DEFAULT_ISSUER).strip(),
             jwks_url=current.get("MAINBOOK_MCP_OAUTH_JWKS_URL", DEFAULT_JWKS_URL).strip(),
             resource=current.get("MAINBOOK_MCP_OAUTH_RESOURCE", DEFAULT_RESOURCE).strip(),
-            service_signing_secret=_first_secret(
-                current.get("MCP_SERVICE_SIGNING_SECRETS", "")
-            ),
+            service_signing_secret=_first_secret(current.get("MCP_SERVICE_SIGNING_SECRETS", "")),
             clock_skew_seconds=_nonnegative_int(
                 current, "MAINBOOK_MCP_OAUTH_CLOCK_SKEW_SECONDS", 5
             ),
@@ -120,6 +134,11 @@ class OAuthSettings:
         )
         settings.validate()
         return settings
+
+    @property
+    def metadata_url(self) -> str:
+        """Where clients are told to look for this deployment's resource metadata."""
+        return protected_resource_metadata_url(self.resource)
 
     def validate(self) -> None:
         if not self.enabled:
