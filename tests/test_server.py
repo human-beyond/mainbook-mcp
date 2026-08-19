@@ -18,6 +18,7 @@ from mainbook_mcp.client import PollOutcome
 from mainbook_mcp.credentials import StoredCredential
 from mainbook_mcp.errors import MainBookAPIError
 from mainbook_mcp.files import PDFSource
+from mainbook_mcp.oauth_http import TOOL_SCOPES
 from mainbook_mcp.server import create_server
 
 API_KEY = "mb_live_test_server_key_material"
@@ -285,6 +286,10 @@ async def test_hosted_mode_registers_four_tools_while_local_mode_registers_five(
     ]
     for name in hosted:
         assert hosted[name].input_schema == local[name].input_schema
+
+    # Security invariant: a newly registered hosted tool must fail this test
+    # until its required OAuth scope is deliberately added to the single map.
+    assert set(hosted) == set(TOOL_SCOPES)
 
 
 @pytest.mark.asyncio

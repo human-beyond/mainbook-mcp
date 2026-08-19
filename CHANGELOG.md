@@ -4,6 +4,28 @@ All notable changes to this project are documented here. Versions follow
 [semantic versioning](https://semver.org/) and match the published
 [PyPI releases](https://pypi.org/project/mainbook-mcp/).
 
+## [Unreleased]
+
+### Added
+
+- An opt-in, hosted-only MainBook OAuth verifier for RS256 access tokens, with bounded JWKS caching,
+  exact issuer/resource/time/claim checks, and one rate-limited refresh when a signing `kid` is new.
+- Per-tool scope enforcement and protected-resource metadata at
+  `/.well-known/oauth-protected-resource/mcp` while the OAuth flag is enabled.
+- Short-lived, single-request `X-MainBook-Service` credentials for verified OAuth calls to the
+  Developer API. The client access token stops at the MCP boundary.
+
+### Changed
+
+- `initialize` and `tools/list` remain anonymous in hosted mode; authentication and scope checks
+  happen before each `tools/call` reaches a tool handler.
+- Legacy `mb_live_` credentials retain their existing hosted and local paths with OAuth enabled or
+  disabled.
+
+This code is dark-launched behind `MAINBOOK_MCP_OAUTH_ENABLED` (off by default). It has not been
+published or deployed, and this entry does not claim that account login is available on the hosted
+service.
+
 ## [0.5.1] — 2026-08-17
 
 ### Added

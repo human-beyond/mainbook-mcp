@@ -6,6 +6,7 @@ import asyncio
 import json
 import random
 import time
+import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -13,6 +14,7 @@ from email.utils import parsedate_to_datetime
 from typing import Any, Literal
 
 import httpx2 as httpx
+import jwt
 
 from . import __version__
 from .errors import MainBookAPIError, MainBookNetworkError, api_error_from_response
@@ -40,13 +42,49 @@ class PollOutcome:
     timed_out: bool
 
 
+@dataclass(frozen=True)
+class ServiceCredentialIssuer:
+    """Issue a fresh one-request credential for each call through Django's service door."""
+
+    subject: uuid.UUID
+    client_id: str
+    signing_secret: str
+    wall_clock: Callable[[], float] = time.time
+    jwt_id: Callable[[], uuid.UUID] = uuid.uuid4
+    auth_failure: Callable[[], None] | None = None
+
+    def header_value(self) -> str:
+        issued_at = int(self.wall_clock())
+        return jwt.encode(
+            {
+                "iss": "mcp",
+                "aud": "api.mainbook.ai",
+                "sub": str(self.subject),
+                "cid": self.client_id,
+                "jti": str(self.jwt_id()),
+                "iat": issued_at,
+                "exp": issued_at + 60,
+            },
+            self.signing_secret,
+            algorithm="HS256",
+        )
+
+    def mark_auth_failure(self) -> None:
+        if self.auth_failure is not None:
+            self.auth_failure()
+
+
+DeveloperCredential = str | ServiceCredentialIssuer
+
+
 class MainBookClient:
     """HTTP client that never shares credentials outside its own tool call."""
 
     def __init__(
         self,
         *,
-        api_key: str,
+        api_key: str | None = None,
+        service_credential: ServiceCredentialIssuer | None = None,
         base_url: str = "https://api.mainbook.ai",
         transport: httpx.AsyncBaseTransport | None = None,
         timeout: float = 30.0,
@@ -55,9 +93,13 @@ class MainBookClient:
         wall_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         jitter: Callable[[float, float], float] = random.uniform,
     ) -> None:
-        if not api_key or not api_key.strip():
+        clean_key = api_key.strip() if isinstance(api_key, str) else ""
+        if not clean_key and service_credential is None:
             raise ValueError("MainBook API key is required")
-        self._api_key = api_key.strip()
+        if clean_key and service_credential is not None:
+            raise ValueError("Exactly one MainBook API credential is required")
+        self._api_key = clean_key or None
+        self._service_credential = service_credential
         self._developer_url = _developer_base_url(base_url)
         self._sleep = sleep
         self._monotonic = monotonic
@@ -204,12 +246,19 @@ class MainBookClient:
     ) -> httpx.Response:
         # Only on our own API calls: the presigned storage PUT in `upload_pdf`
         # is signed for a bare request and must not gain headers here.
-        request_headers = {
-            "Authorization": f"Bearer {self._api_key}",
-            "User-Agent": USER_AGENT,
-        }
+        request_headers = {"User-Agent": USER_AGENT}
         if headers:
             request_headers.update(headers)
+        # Authentication is selected last so a per-call header can never replace,
+        # duplicate, or smuggle the client's credential into the internal request.
+        request_headers.pop("Authorization", None)
+        request_headers.pop("authorization", None)
+        request_headers.pop("X-MainBook-Service", None)
+        request_headers.pop("x-mainbook-service", None)
+        if self._service_credential is not None:
+            request_headers["X-MainBook-Service"] = self._service_credential.header_value()
+        else:
+            request_headers["Authorization"] = f"Bearer {self._api_key}"
         try:
             response = await self._http.request(
                 method,
@@ -224,6 +273,8 @@ class MainBookClient:
             ) from exc
         if 200 <= response.status_code < 300:
             return response
+        if response.status_code == 401 and self._service_credential is not None:
+            self._service_credential.mark_auth_failure()
         payload: object
         try:
             payload = response.json()

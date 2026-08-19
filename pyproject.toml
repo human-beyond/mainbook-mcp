@@ -36,6 +36,7 @@ classifiers = [
 dependencies = [
   "httpx2>=2.10,<3",
   "mcp>=2.0,<3",
+  "PyJWT[crypto]>=2.10,<3",
   "pydantic>=2.12,<3",
   "pypdf>=6.1,<7",
 ]
