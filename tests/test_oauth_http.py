@@ -62,7 +62,7 @@ def app_with(verifier: StubVerifier):
                 "headers": [(b"content-type", b"application/json")],
             }
         )
-        await send({"type": "http.response.body", "body": b'{}'})
+        await send({"type": "http.response.body", "body": b"{}"})
 
     return OAuthToolAuthMiddleware(downstream, verifier), calls
 
@@ -257,9 +257,7 @@ async def test_progress_reaches_client_before_handler_finishes() -> None:
 
     async def send(message):
         messages.append(message)
-        if message["type"] == "http.response.body" and b"progress" in message.get(
-            "body", b""
-        ):
+        if message["type"] == "http.response.body" and b"progress" in message.get("body", b""):
             progress_reached_client.set()
 
     scope = {
