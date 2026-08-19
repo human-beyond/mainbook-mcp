@@ -48,6 +48,7 @@ class ServiceCredentialIssuer:
 
     subject: uuid.UUID
     client_id: str
+    consent_id: str
     signing_secret: str
     wall_clock: Callable[[], float] = time.time
     jwt_id: Callable[[], uuid.UUID] = uuid.uuid4
@@ -61,6 +62,8 @@ class ServiceCredentialIssuer:
                 "aud": "api.mainbook.ai",
                 "sub": str(self.subject),
                 "cid": self.client_id,
+                "src": "oauth",
+                "gid": self.consent_id,
                 "jti": str(self.jwt_id()),
                 "iat": issued_at,
                 "exp": issued_at + 60,
