@@ -21,7 +21,7 @@ from starlette.responses import JSONResponse
 from . import __version__
 from .client import DeveloperCredential, MainBookClient, ServiceCredentialIssuer
 from .credentials import CredentialError, load_credential, resolve_api_base
-from .errors import MainBookError, MainBookFileError, MainBookNetworkError
+from .errors import MainBookAPIError, MainBookError, MainBookFileError, MainBookNetworkError
 from .files import PDFSource, download_pdf_url, load_local_pdf, normalize_allowed_roots
 from .http_transport import StandaloneGetRejectionMiddleware
 from .models import (
@@ -363,6 +363,7 @@ def create_server(
                 transport=transport,
                 destination=destination,
                 allowed_roots=active_roots,
+                use_result_ticket=isinstance(api_key, ServiceCredentialIssuer),
             )
 
     @server.tool(
@@ -498,6 +499,7 @@ def create_server(
                 transport=transport,
                 destination=destination,
                 allowed_roots=active_roots,
+                use_result_ticket=isinstance(api_key, ServiceCredentialIssuer),
             )
 
     async def output_folder(
@@ -801,6 +803,7 @@ async def _output_for_job(
     transport: Literal["stdio", "http"],
     destination: OutputDestination | None,
     allowed_roots: tuple[Path, ...],
+    use_result_ticket: bool,
 ) -> ConversionOutput:
     current = _validated_job(raw_job)
 
@@ -902,23 +905,100 @@ async def _output_for_job(
             message=_saved_message(destination, written, prefix="Conversion completed."),
         )
 
+    download, message = await _hosted_download_instruction(
+        api=api,
+        job_id=current.job_id,
+        result_type=result_type,
+        base_url=base_url,
+        use_result_ticket=use_result_ticket,
+    )
     return ConversionOutput(
         job_id=current.job_id,
         state=current.state,
         pages=current.pages,
         validation=current.validation,
         result_type=result_type,
-        download=DownloadInstruction(
-            job_id=current.job_id,
+        download=download,
+        message=message,
+    )
+
+
+async def _hosted_download_instruction(
+    *,
+    api: Any,
+    job_id: str,
+    result_type: Literal["xlsx", "csv"],
+    base_url: str,
+    use_result_ticket: bool,
+) -> tuple[DownloadInstruction, str]:
+    if use_result_ticket:
+        try:
+            ticket = await api.create_result_ticket(job_id, result_type)
+            url = ticket.get("url")
+            expires_at = ticket.get("expires_at")
+            if (
+                not isinstance(url, str)
+                or not url
+                or not isinstance(expires_at, str)
+                or not expires_at
+            ):
+                raise MainBookNetworkError(
+                    "MainBook returned an unexpected result-ticket response. Retry later."
+                )
+        except (MainBookAPIError, MainBookNetworkError) as exc:
+            explanation = _ticket_failure_explanation(exc)
+            return (
+                DownloadInstruction(
+                    job_id=job_id,
+                    result_type=result_type,
+                    rest_endpoint=_result_endpoint(base_url, job_id, result_type),
+                    instruction=(
+                        f"{explanation} The conversion remains complete. The REST endpoint below "
+                        "is the fallback, but it requires a legacy mb_live_ Bearer key; an OAuth "
+                        "access token may not work there."
+                    ),
+                ),
+                (
+                    f"Conversion completed, but a one-time {result_type.upper()} download link "
+                    "could not be issued. REST fallback instructions are included."
+                ),
+            )
+        return (
+            DownloadInstruction(
+                job_id=job_id,
+                result_type=result_type,
+                url=url,
+                expires_at=expires_at,
+                instruction=(
+                    f"Open this link once to download the {result_type.upper()} file. "
+                    f"It expires at {expires_at}."
+                ),
+            ),
+            f"Conversion completed. A one-time {result_type.upper()} download link is ready.",
+        )
+
+    return (
+        DownloadInstruction(
+            job_id=job_id,
             result_type=result_type,
-            rest_endpoint=_result_endpoint(base_url, current.job_id, result_type),
+            rest_endpoint=_result_endpoint(base_url, job_id, result_type),
             instruction=(
                 f"Call get_conversion with this job_id and result_type='{result_type}' to confirm "
                 "status, then download the binary from the REST endpoint using the same Bearer key."
             ),
         ),
-        message=f"Conversion completed. Binary {result_type.upper()} was not embedded in MCP output.",
+        f"Conversion completed. Binary {result_type.upper()} was not embedded in MCP output.",
     )
+
+
+def _ticket_failure_explanation(exc: MainBookError) -> str:
+    if isinstance(exc, MainBookAPIError):
+        if exc.status_code == 404:
+            return "The one-time download-link feature is disabled or unavailable."
+        if exc.status_code == 409 or exc.reason == "job_not_terminal":
+            return "MainBook still considers the job not terminal, so it did not issue a link."
+        return f"MainBook refused to issue a one-time download link (HTTP {exc.status_code})."
+    return "The MCP server could not reach MainBook to issue a one-time download link."
 
 
 def _saved_message(destination: OutputDestination, path: Path, *, prefix: str) -> str:

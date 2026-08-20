@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -409,6 +410,29 @@ async def test_a_caller_supplied_header_cannot_drop_our_identification() -> None
     assert seen[0].headers["user-agent"] == USER_AGENT
     assert seen[0].headers["idempotency-key"] == "idem-1"
     assert seen[0].headers["authorization"] == f"Bearer {API_KEY}"
+
+
+@pytest.mark.asyncio
+async def test_create_result_ticket_uses_developer_job_path_and_format_body() -> None:
+    seen: list[httpx.Request] = []
+    payload = {
+        "ticket": "opaque-ticket-must-not-be-returned-by-mcp",
+        "url": "https://api.mainbook.ai/api/v1/developer/results/one-time-token",
+        "expires_at": "2026-08-19T15:10:00Z",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=payload)
+
+    async with make_client(handler) as client:
+        ticket = await client.create_result_ticket(JOB_ID, "xlsx")
+
+    assert ticket == payload
+    assert len(seen) == 1
+    assert seen[0].method == "POST"
+    assert seen[0].url.path == f"/api/v1/developer/jobs/{JOB_ID}/result-ticket"
+    assert json.loads(seen[0].content) == {"format": "xlsx"}
 
 
 @pytest.mark.asyncio

@@ -157,8 +157,10 @@ A saved folder that is missing or no longer allowed is ignored, and that fallbac
 result.
 
 JSON remains inline. It is also written to a `.json` file only when an explicit `output_path` is
-provided. In remote HTTP mode, local paths and `output_folder` are unavailable; XLSX/CSV continues
-to return a REST download instruction because the server disk does not belong to the client.
+provided. In remote HTTP mode, local paths and `output_folder` are unavailable, because the server disk
+does not belong to the client. XLSX/CSV comes back as a one-time download link that expires in
+ten minutes when you signed in through OAuth, and as a REST download instruction when you
+authenticated with a legacy `mb_live_` key.
 
 ## Manual requirements and installation
 
@@ -199,8 +201,9 @@ Authorization: Bearer mb_live_REPLACE_ME
 The key is read from each request, so every user of a client reaches their own MainBook account and
 spends their own page credits. `initialize` and `tools/list` answer without a key; every tool call
 requires one. Local file paths and `output_folder` do not exist over HTTP — pass `file_url` instead
-of `file_path`, and XLSX or CSV results come back as a REST download instruction, because the
-server's disk is not yours.
+of `file_path`, because the server's disk is not yours. XLSX or CSV results come back as a
+one-time download link (ten minutes, single use) for OAuth sessions, or as a REST download
+instruction for a legacy `mb_live_` key.
 
 You can also run the same remote mode yourself. It is stateless Streamable HTTP with JSON responses:
 

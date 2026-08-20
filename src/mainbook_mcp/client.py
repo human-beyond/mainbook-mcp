@@ -193,6 +193,18 @@ class MainBookClient:
             return self._json_object(response)
         return response.content
 
+    async def create_result_ticket(
+        self,
+        job_id: str,
+        result_type: Literal["xlsx", "csv"],
+    ) -> dict[str, Any]:
+        response = await self._request_api(
+            "POST",
+            f"/jobs/{job_id}/result-ticket",
+            json_body={"format": result_type},
+        )
+        return self._json_object(response)
+
     async def get_balance(self) -> dict[str, Any]:
         response = await self._request_api("GET", "/balance")
         return self._json_object(response)

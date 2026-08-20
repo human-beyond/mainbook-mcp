@@ -143,7 +143,8 @@ class GetConversionInput(StrictModel):
         default="json",
         description=(
             "Representation to retrieve after success. JSON is inline. Over stdio, XLSX and CSV "
-            "are saved locally; HTTP mode returns the REST retrieval endpoint."
+            "are saved locally; HTTP mode returns a one-time link for OAuth callers or REST "
+            "retrieval instructions for legacy API keys."
         ),
     )
     output_path: str | None = Field(
@@ -257,7 +258,9 @@ class ConversionData(ServerPayload):
 class DownloadInstruction(StrictModel):
     job_id: str
     result_type: Literal["xlsx", "csv"]
-    rest_endpoint: str
+    rest_endpoint: str | None = None
+    url: str | None = None
+    expires_at: str | None = None
     instruction: str
 
 

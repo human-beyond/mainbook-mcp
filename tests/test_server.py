@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -14,9 +15,9 @@ from mcp import Client
 from pypdf import PdfWriter
 
 from mainbook_mcp import server as server_module
-from mainbook_mcp.client import PollOutcome
+from mainbook_mcp.client import PollOutcome, ServiceCredentialIssuer
 from mainbook_mcp.credentials import StoredCredential
-from mainbook_mcp.errors import MainBookAPIError
+from mainbook_mcp.errors import MainBookAPIError, MainBookNetworkError
 from mainbook_mcp.files import PDFSource
 from mainbook_mcp.oauth_http import TOOL_SCOPES
 from mainbook_mcp.server import create_server
@@ -24,6 +25,8 @@ from mainbook_mcp.server import create_server
 API_KEY = "mb_live_test_server_key_material"
 SECOND_KEY = "mb_live_second_request_key"
 JOB_ID = "00000000-0000-0000-0000-000000000001"
+TICKET_URL = "https://api.mainbook.ai/api/v1/developer/results/one-time-secret"
+TICKET_EXPIRES_AT = "2026-08-19T15:10:00Z"
 
 
 def job(state: str = "succeeded") -> dict[str, Any]:
@@ -122,6 +125,7 @@ class FakeAPIClient:
         balance: dict[str, int] | None = None,
         page: dict[str, object] | None = None,
         error: Exception | None = None,
+        ticket_error: Exception | None = None,
     ) -> None:
         self.state = state
         self.timed_out = timed_out
@@ -133,6 +137,7 @@ class FakeAPIClient:
             "previous": None,
         }
         self.error = error
+        self.ticket_error = ticket_error
         self.calls: list[tuple[str, object]] = []
 
     async def create_job(self, **kwargs: object) -> dict[str, object]:
@@ -167,6 +172,16 @@ class FakeAPIClient:
         self.calls.append(("get_result", (job_id, result_type)))
         return self.result
 
+    async def create_result_ticket(self, job_id: str, result_type: str) -> dict[str, str]:
+        self.calls.append(("create_result_ticket", (job_id, result_type)))
+        if self.ticket_error is not None:
+            raise self.ticket_error
+        return {
+            "ticket": "opaque-ticket-must-not-reach-mcp-output",
+            "url": TICKET_URL,
+            "expires_at": TICKET_EXPIRES_AT,
+        }
+
     async def get_balance(self) -> dict[str, int]:
         self.calls.append(("get_balance", None))
         if self.error:
@@ -195,6 +210,39 @@ def server_with_fake(fake: FakeAPIClient, captured_keys: list[str] | None = None
         transport="stdio",
         client_factory=client_factory,
         source_loader=source_loader,
+    )
+
+
+def hosted_server_with_credential(monkeypatch, fake: FakeAPIClient, credential: object):
+    monkeypatch.setattr(
+        server_module,
+        "_api_key_for_request",
+        lambda ctx, *, transport, api_base: credential,
+    )
+
+    @asynccontextmanager
+    async def client_factory(received: object, base_url: str) -> AsyncIterator[FakeAPIClient]:
+        assert received is credential
+        assert base_url == "https://api.mainbook.ai"
+        yield fake
+
+    async def source_loader(request) -> PDFSource:
+        assert request.file_url == "https://files.example/statement.pdf"
+        return PDFSource(filename="statement.pdf", data=b"%PDF-safe", size_bytes=9, page_count=2)
+
+    return create_server(
+        transport="http",
+        client_factory=client_factory,
+        source_loader=source_loader,
+    )
+
+
+def oauth_credential() -> ServiceCredentialIssuer:
+    return ServiceCredentialIssuer(
+        subject=uuid.UUID("11111111-1111-4111-8111-111111111111"),
+        client_id="sample-public-client",
+        consent_id="33333333-3333-4333-8333-333333333333",
+        signing_secret="service-door-secret-for-result-ticket-test",
     )
 
 
@@ -632,6 +680,121 @@ async def test_convert_binary_type_never_places_bytes_in_mcp_response(
     assert result.structured_content["saved_file"]["path"] == str(expected.resolve())
     assert "binary must be fetched" not in json.dumps(result.structured_content)
     assert ("get_result", (JOB_ID, result_type)) in fake.calls
+    assert all(name != "create_result_ticket" for name, _ in fake.calls)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("result_type", ["xlsx", "csv"])
+async def test_hosted_oauth_binary_returns_one_time_link_without_rest_instruction(
+    monkeypatch, caplog, result_type: str
+) -> None:
+    fake = FakeAPIClient()
+    server = hosted_server_with_credential(monkeypatch, fake, oauth_credential())
+    caplog.set_level(logging.DEBUG)
+
+    async with Client(server) as client:
+        result = await client.call_tool(
+            "convert_bank_statement",
+            {
+                "file_url": "https://files.example/statement.pdf",
+                "result_type": result_type,
+                "timeout_seconds": 30,
+            },
+        )
+
+    assert result.is_error is not True
+    download = result.structured_content["download"]
+    assert download["url"] == TICKET_URL
+    assert download["expires_at"] == TICKET_EXPIRES_AT
+    assert download["rest_endpoint"] is None
+    assert "open this link once" in download["instruction"].lower()
+    assert TICKET_EXPIRES_AT in download["instruction"]
+    assert "rest endpoint" not in download["instruction"].lower()
+    assert ("create_result_ticket", (JOB_ID, result_type)) in fake.calls
+    assert "opaque-ticket-must-not-reach-mcp-output" not in json.dumps(result.structured_content)
+    captured_logs = "\n".join(
+        f"{record.getMessage()} {record.__dict__}" for record in caplog.records
+    )
+    assert TICKET_URL not in captured_logs
+
+
+@pytest.mark.asyncio
+async def test_hosted_legacy_key_keeps_rest_instruction_without_requesting_ticket(
+    monkeypatch,
+) -> None:
+    fake = FakeAPIClient()
+    server = hosted_server_with_credential(monkeypatch, fake, API_KEY)
+
+    async with Client(server) as client:
+        result = await client.call_tool(
+            "convert_bank_statement",
+            {
+                "file_url": "https://files.example/statement.pdf",
+                "result_type": "xlsx",
+                "timeout_seconds": 30,
+            },
+        )
+
+    assert result.is_error is not True
+    download = result.structured_content["download"]
+    assert download["url"] is None
+    assert download["expires_at"] is None
+    assert "type=xlsx" in download["rest_endpoint"]
+    assert "same Bearer key" in download["instruction"]
+    assert all(name != "create_result_ticket" for name, _ in fake.calls)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("ticket_error", "explanation"),
+    [
+        (
+            MainBookAPIError(
+                "MainBook could not complete the request (HTTP 404). Retry later.",
+                status_code=404,
+                reason="service_error",
+            ),
+            "disabled or unavailable",
+        ),
+        (
+            MainBookAPIError(
+                "The conversion is not finished yet.",
+                status_code=409,
+                reason="job_not_terminal",
+            ),
+            "not terminal",
+        ),
+        (
+            MainBookNetworkError("The MCP server could not reach the MainBook API."),
+            "could not reach",
+        ),
+    ],
+)
+async def test_hosted_oauth_ticket_failure_preserves_conversion_and_explains_rest_fallback(
+    monkeypatch, ticket_error: Exception, explanation: str
+) -> None:
+    fake = FakeAPIClient(ticket_error=ticket_error)
+    server = hosted_server_with_credential(monkeypatch, fake, oauth_credential())
+
+    async with Client(server) as client:
+        result = await client.call_tool(
+            "convert_bank_statement",
+            {
+                "file_url": "https://files.example/statement.pdf",
+                "result_type": "xlsx",
+                "timeout_seconds": 30,
+            },
+        )
+
+    assert result.is_error is not True
+    download = result.structured_content["download"]
+    assert download["url"] is None
+    assert download["expires_at"] is None
+    assert "type=xlsx" in download["rest_endpoint"]
+    assert explanation in download["instruction"].lower()
+    assert "mb_live_" in download["instruction"]
+    assert "conversion completed" in result.structured_content["message"].lower()
+    assert ("create_result_ticket", (JOB_ID, "xlsx")) in fake.calls
 
 
 @pytest.mark.asyncio
