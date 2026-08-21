@@ -531,3 +531,63 @@ async def test_standalone_get_is_refused_instead_of_hanging_forever(
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+
+
+def _challenge_app(monkeypatch, token: str | None):
+    if token is None:
+        monkeypatch.delenv("MAINBOOK_MCP_OPENAI_APPS_CHALLENGE", raising=False)
+    else:
+        monkeypatch.setenv("MAINBOOK_MCP_OPENAI_APPS_CHALLENGE", token)
+    return create_server(transport="http", oauth_settings=OAuthSettings()).streamable_http_app(
+        stateless_http=True, json_response=True
+    )
+
+
+@pytest.mark.asyncio
+async def test_openai_apps_challenge_is_absent_until_a_token_is_configured(monkeypatch) -> None:
+    """An empty 200 would read as a wrong token; the path must simply not exist yet."""
+    app = _challenge_app(monkeypatch, None)
+    async with httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=app), base_url="https://mcp.mainbook.ai"
+    ) as client:
+        response = await client.get("/.well-known/openai-apps-challenge")
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_openai_apps_challenge_returns_the_bare_token(monkeypatch) -> None:
+    """OpenAI compares the whole body with the token, so nothing may wrap or follow it."""
+    token = "oai-apps-challenge-EXAMPLE-0123456789"
+    app = _challenge_app(monkeypatch, f"  {token}  ")
+    async with httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=app), base_url="https://mcp.mainbook.ai"
+    ) as client:
+        response = await client.get("/.well-known/openai-apps-challenge")
+        head = await client.head("/.well-known/openai-apps-challenge")
+        posted = await client.post("/.well-known/openai-apps-challenge")
+
+    assert response.status_code == 200
+    assert response.text == token
+    assert response.headers["content-type"] == "text/plain; charset=utf-8"
+    assert head.status_code == 200
+    assert posted.status_code == 405
+
+
+@pytest.mark.asyncio
+async def test_openai_apps_challenge_leaves_the_mcp_endpoint_alone(monkeypatch) -> None:
+    """The challenge sits in front of everything, so prove it still passes MCP through."""
+    app = _challenge_app(monkeypatch, "oai-apps-challenge-EXAMPLE-0123456789")
+    async with httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=app), base_url="https://mcp.mainbook.ai"
+    ) as client:
+        response = await client.get("/mcp")
+    assert response.status_code == 405
+
+
+def test_read_only_tools_declare_every_hint_the_directories_read() -> None:
+    """OpenAI's review rejects tools whose readOnly/destructive/openWorld hints are absent."""
+    annotations = server_module.READ_ANNOTATIONS
+    assert annotations.read_only_hint is True
+    assert annotations.destructive_hint is False
+    assert annotations.idempotent_hint is True
+    assert annotations.open_world_hint is True

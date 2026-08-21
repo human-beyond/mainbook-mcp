@@ -23,7 +23,11 @@ from .client import DeveloperCredential, MainBookClient, ServiceCredentialIssuer
 from .credentials import CredentialError, load_credential, resolve_api_base
 from .errors import MainBookAPIError, MainBookError, MainBookFileError, MainBookNetworkError
 from .files import PDFSource, download_pdf_url, load_local_pdf, normalize_allowed_roots
-from .http_transport import StandaloneGetRejectionMiddleware
+from .http_transport import (
+    OPENAI_APPS_CHALLENGE_ENV,
+    OpenAIAppsChallengeMiddleware,
+    StandaloneGetRejectionMiddleware,
+)
 from .models import (
     DEFAULT_POLL_SECONDS,
     BalanceOutput,
@@ -65,7 +69,12 @@ CONVERT_ANNOTATIONS = ToolAnnotations(
     idempotent_hint=False,
     open_world_hint=True,
 )
-READ_ANNOTATIONS = ToolAnnotations(read_only_hint=True, open_world_hint=True)
+READ_ANNOTATIONS = ToolAnnotations(
+    read_only_hint=True,
+    destructive_hint=False,
+    idempotent_hint=True,
+    open_world_hint=True,
+)
 GET_CONVERSION_LOCAL_ANNOTATIONS = ToolAnnotations(
     read_only_hint=False,
     destructive_hint=False,
@@ -90,11 +99,14 @@ class StatelessHTTPMCPServer(MCPServer):
 
     def streamable_http_app(self, **kwargs: Any):  # type: ignore[no-untyped-def]
         app = super().streamable_http_app(**kwargs)
-        if not kwargs.get("stateless_http", False):
-            return app
-        return StandaloneGetRejectionMiddleware(
+        if kwargs.get("stateless_http", False):
+            app = StandaloneGetRejectionMiddleware(
+                app,
+                endpoint_path=kwargs.get("streamable_http_path", "/mcp"),
+            )
+        return OpenAIAppsChallengeMiddleware(
             app,
-            endpoint_path=kwargs.get("streamable_http_path", "/mcp"),
+            token=os.getenv(OPENAI_APPS_CHALLENGE_ENV, ""),
         )
 
 

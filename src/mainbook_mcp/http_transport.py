@@ -49,3 +49,65 @@ class StandaloneGetRejectionMiddleware:
             await send({"type": "http.response.body", "body": METHOD_NOT_ALLOWED_BODY})
             return
         await self._app(scope, receive, send)
+
+
+OPENAI_APPS_CHALLENGE_PATH = "/.well-known/openai-apps-challenge"
+OPENAI_APPS_CHALLENGE_ENV = "MAINBOOK_MCP_OPENAI_APPS_CHALLENGE"
+
+
+class OpenAIAppsChallengeMiddleware:
+    """Serve the ChatGPT directory's domain-ownership token from this host.
+
+    OpenAI proves that whoever submits the listing controls the MCP hostname by
+    fetching a single token from a fixed path and comparing it byte for byte. The
+    body must therefore be the token alone — not JSON, not a list, not several
+    tokens — because a wrapper or a second value fails the check.
+
+    With no token configured the path stays a 404. An empty 200 would read as a
+    token that does not match, which is a harder failure to diagnose than an
+    endpoint that plainly is not there yet.
+    """
+
+    def __init__(self, app: ASGIApp, *, token: str) -> None:
+        self._app = app
+        self._token = token.strip()
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if (
+            not self._token
+            or scope["type"] != "http"
+            or (scope.get("path", "").rstrip("/") or "/") != OPENAI_APPS_CHALLENGE_PATH
+        ):
+            await self._app(scope, receive, send)
+            return
+
+        method = scope.get("method")
+        if method not in ("GET", "HEAD"):
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 405,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(METHOD_NOT_ALLOWED_BODY)).encode("ascii")),
+                        (b"allow", b"GET, HEAD"),
+                        (b"cache-control", b"no-store"),
+                    ],
+                }
+            )
+            await send({"type": "http.response.body", "body": METHOD_NOT_ALLOWED_BODY})
+            return
+
+        body = self._token.encode("utf-8")
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"text/plain; charset=utf-8"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                    (b"cache-control", b"no-store"),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"" if method == "HEAD" else body})

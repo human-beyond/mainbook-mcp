@@ -293,8 +293,10 @@ async def test_tools_expose_exact_names_annotations_and_nonopaque_schemas() -> N
         assert annotations is not None
         assert annotations.read_only_hint is True
         assert annotations.open_world_hint is True
-        assert annotations.destructive_hint is None
-        assert annotations.idempotent_hint is None
+        # Directory reviews (OpenAI's among them) reject a tool that leaves any of
+        # the three hints unstated, so a read tool spells out all of them.
+        assert annotations.destructive_hint is False
+        assert annotations.idempotent_hint is True
 
     get_conversion = tools["get_conversion"].annotations
     assert get_conversion is not None
