@@ -24,14 +24,26 @@ def test_package_version_matches_pyproject() -> None:
     assert __version__ == _pyproject_version()
 
 
+def _as_tuple(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split("."))
+
+
 def test_server_json_version_matches_pyproject() -> None:
+    """The shipped package pins one number; the registry entry may run ahead.
+
+    Registry versions are immutable, so a metadata-only correction (0.5.2 on
+    2026-08-20 removed the required ``Authorization`` header from the hosted
+    remote) needs its own registry version even though no code changed. What
+    must never drift is the package the entry points at.
+    """
+
     import json
 
     root = pathlib.Path(__file__).resolve().parent.parent
     server = json.loads((root / "server.json").read_text())
     expected = _pyproject_version()
-    assert server["version"] == expected
     assert server["packages"][0]["version"] == expected
+    assert _as_tuple(server["version"]) >= _as_tuple(expected)
 
 
 def test_bundle_and_cursor_manifests_match_pyproject() -> None:

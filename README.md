@@ -7,8 +7,9 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **A finance MCP server scoped to one job: turning PDF bank statements into checked JSON, Excel or
-CSV — not a general accounting MCP.** It runs locally with your MainBook API key, or over MainBook's
-hosted endpoint at `https://mcp.mainbook.ai/mcp` with that same key.
+CSV — not a general accounting MCP.** It runs locally after one `mainbook-mcp auth login`, or over
+MainBook's hosted endpoint at `https://mcp.mainbook.ai/mcp`, where your client signs you in with your
+MainBook account. Existing `mb_live_` API keys keep working for scripts and older clients.
 
 Point your assistant at a statement and ask for a spreadsheet. The PDF goes to
 [MainBook](https://mainbook.ai/mcp), which extracts every transaction, normalises dates to
@@ -192,15 +193,34 @@ client configuration. Never commit them.
 ## Streamable HTTP mode
 
 MainBook runs this server for you at `https://mcp.mainbook.ai/mcp`, so a client that speaks remote
-MCP needs nothing installed. Point it at that URL and send your own key:
+MCP needs nothing installed. Paste that URL into claude.ai, Claude Desktop, ChatGPT or Cursor and
+sign in with your MainBook account when the client asks; no key is copied into the configuration.
+Cursor takes a fixed client id instead of registering itself, so give it this block:
+
+```json
+{
+  "mcpServers": {
+    "mainbook": {
+      "url": "https://mcp.mainbook.ai/mcp",
+      "auth": {
+        "CLIENT_ID": "mainbook-cursor",
+        "scopes": ["mainbook:read", "mainbook:convert"]
+      }
+    }
+  }
+}
+```
+
+A client that cannot sign in can still send a legacy key from
+[mainbook.ai/developer](https://mainbook.ai/developer):
 
 ```text
 Authorization: Bearer mb_live_REPLACE_ME
 ```
 
-The key is read from each request, so every user of a client reaches their own MainBook account and
-spends their own page credits. `initialize` and `tools/list` answer without a key; every tool call
-requires one. Local file paths and `output_folder` do not exist over HTTP — pass `file_url` instead
+Either credential is read from each request, so every user of a client reaches their own MainBook
+account and spends their own page credits. `initialize` and `tools/list` answer without a
+credential; every tool call requires one. Local file paths and `output_folder` do not exist over HTTP — pass `file_url` instead
 of `file_path`, because the server's disk is not yours. XLSX or CSV results come back as a
 one-time download link (ten minutes, single use) for OAuth sessions, or as a REST download
 instruction for a legacy `mb_live_` key.
@@ -232,12 +252,12 @@ default_tools_approval_mode = "writes"
 Replace the URL with your own host if you deploy this yourself; a self-hosted deployment still needs
 normal HTTPS termination and access controls.
 
-### OAuth verifier dark launch
+### OAuth on the hosted service
 
-The source tree contains an OAuth resource-server path for hosted deployments, but it is disabled by
-default and is not a promise that account login is available on `mcp.mainbook.ai`. When explicitly
-enabled, `initialize` and `tools/list` remain public, while each tool call accepts either an existing
-`mb_live_` key or a MainBook RS256 access token. OAuth tokens are verified locally against only the
+Account sign-in is live on `https://mcp.mainbook.ai/mcp` (since 2026-08-20). The verifier stays
+disabled by default in this source tree, so a deployment you run yourself has to enable it
+deliberately. Wherever it is enabled, `initialize` and `tools/list` remain public, while each tool
+call accepts either an existing `mb_live_` key or a MainBook RS256 access token. OAuth tokens are verified locally against only the
 configured MainBook JWKS URL; they are never forwarded to the Developer API. The MCP server sends a
 fresh 60-second `X-MainBook-Service` credential for every internal REST request instead.
 

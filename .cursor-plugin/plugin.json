@@ -2,7 +2,7 @@
   "name": "mainbook-bank-statement-converter",
   "displayName": "MainBook Bank Statement Converter",
   "version": "0.5.1",
-  "description": "Convert customer-supplied PDF bank statements to checked JSON, Excel, or CSV with balance validation through MainBook's official MCP server.",
+  "description": "Convert customer-supplied PDF bank statements to checked JSON, Excel, or CSV with balance validation through MainBook's official MCP server. Sign in with your MainBook account; no API key is copied into the configuration.",
   "author": {
     "name": "Human Beyond LLC",
     "email": "hello@human-beyond.ai"
@@ -11,7 +11,7 @@
   "homepage": "https://mainbook.ai/mcp",
   "repository": "https://github.com/human-beyond/mainbook-mcp",
   "license": "MIT",
-  "logo": "icon.png",
+  "logo": "icon-plate.png",
   "keywords": [
     "mainbook",
     "bank-statements",
@@ -29,18 +29,5 @@
     "document-processing",
     "mcp"
   ],
-  "variables": {
-    "type": "object",
-    "properties": {
-      "MAINBOOK_API_KEY": {
-        "type": "string",
-        "title": "MainBook API key",
-        "description": "API key from https://mainbook.ai/developer. MainBook keys start with mb_live_."
-      }
-    },
-    "required": [
-      "MAINBOOK_API_KEY"
-    ]
-  },
   "mcpServers": "./mcp.json"
 }

@@ -1,10 +1,10 @@
 {
   "mcpServers": {
     "mainbook": {
-      "type": "http",
       "url": "https://mcp.mainbook.ai/mcp",
-      "headers": {
-        "Authorization": "Bearer ${MAINBOOK_API_KEY}"
+      "auth": {
+        "CLIENT_ID": "mainbook-cursor",
+        "scopes": ["mainbook:read", "mainbook:convert"]
       }
     }
   }

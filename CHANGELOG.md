@@ -22,9 +22,9 @@ All notable changes to this project are documented here. Versions follow
 - Legacy `mb_live_` credentials retain their existing hosted and local paths with OAuth enabled or
   disabled.
 
-This code is dark-launched behind `MAINBOOK_MCP_OAUTH_ENABLED` (off by default). It has not been
-published or deployed, and this entry does not claim that account login is available on the hosted
-service.
+This path is gated by `MAINBOOK_MCP_OAUTH_ENABLED`, which stays off by default for deployments you
+run yourself. It is enabled on MainBook's hosted service at `https://mcp.mainbook.ai/mcp`, where
+account sign-in has been live since 2026-08-20.
 
 ## [0.5.1] — 2026-08-17
 
