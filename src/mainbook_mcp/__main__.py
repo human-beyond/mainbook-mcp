@@ -188,9 +188,7 @@ def _logout(api_base: str) -> None:
     stored = load_credential(api_base)
     if stored is not None:
         try:
-            revoked = asyncio.run(
-                revoke_credential(api_base=api_base, api_key=stored.api_key)
-            )
+            revoked = asyncio.run(revoke_credential(api_base=api_base, api_key=stored.api_key))
         except AuthFlowError:
             print(
                 "Server-side revocation failed. The key may still be active; "
@@ -238,9 +236,7 @@ def _login(api_base: str, *, no_browser: bool) -> None:
     )
     if previous is not None:
         try:
-            asyncio.run(
-                revoke_credential(api_base=api_base, api_key=previous.api_key)
-            )
+            asyncio.run(revoke_credential(api_base=api_base, api_key=previous.api_key))
         except AuthFlowError as exc:
             _best_effort_revoke(api_base, token.api_key)
             raise AuthFlowError(

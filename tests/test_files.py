@@ -101,8 +101,7 @@ async def test_local_pdf_failure_is_human_readable(tmp_path, kind: str) -> None:
 
     assert "Traceback" not in str(raised.value)
     assert any(
-        word in str(raised.value).lower()
-        for word in ("not found", "regular file", "not a pdf")
+        word in str(raised.value).lower() for word in ("not found", "regular file", "not a pdf")
     )
 
 

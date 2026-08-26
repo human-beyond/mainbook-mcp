@@ -78,8 +78,10 @@ def resolve_api_base(
 ) -> str:
     """Resolve flag, environment, and production default through one normalizer."""
     current_environ = os.environ if environ is None else environ
-    configured = cli_value if cli_value is not None else current_environ.get(
-        "MAINBOOK_API_BASE_URL", DEFAULT_API_BASE
+    configured = (
+        cli_value
+        if cli_value is not None
+        else current_environ.get("MAINBOOK_API_BASE_URL", DEFAULT_API_BASE)
     )
     return normalize_api_base(configured)
 

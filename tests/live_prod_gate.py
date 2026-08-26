@@ -27,9 +27,11 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 
 API = "https://api.mainbook.ai/api/v1"
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-BACKEND = Path(
-    os.environ.get("MAINBOOK_BACKEND_ROOT", PACKAGE_ROOT.parent / "mainbook-dev" / "backend")
-).expanduser().resolve()
+BACKEND = (
+    Path(os.environ.get("MAINBOOK_BACKEND_ROOT", PACKAGE_ROOT.parent / "mainbook-dev" / "backend"))
+    .expanduser()
+    .resolve()
+)
 FIXTURE = BACKEND / "apps/documents/tests/fixtures/real/real_chase_2026-05_business.pdf"
 EXPECTED_ENDING_BALANCE_CENTS = 42336
 

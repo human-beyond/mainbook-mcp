@@ -102,7 +102,9 @@ def validate_preference_folder(path: str, allowed_roots: tuple[Path, ...]) -> Pa
     try:
         folder = candidate.resolve(strict=True)
     except (OSError, RuntimeError) as exc:
-        raise MainBookFileError("The default output folder does not exist or cannot be read.") from exc
+        raise MainBookFileError(
+            "The default output folder does not exist or cannot be read."
+        ) from exc
     if not folder.is_dir():
         raise MainBookFileError("The default output folder must be an existing directory.")
     if not _folder_is_allowed(folder, allowed_roots):
@@ -126,7 +128,9 @@ def prepare_output_path(
         try:
             parent = requested.resolve(strict=True)
         except (OSError, RuntimeError) as exc:
-            raise MainBookFileError("The output folder does not exist or cannot be accessed.") from exc
+            raise MainBookFileError(
+                "The output folder does not exist or cannot be accessed."
+            ) from exc
         filename = _filename_with_result_extension(default_filename, result_type)
     else:
         try:
@@ -180,9 +184,7 @@ def _open_checked_parent(parent: Path, allowed_roots: tuple[Path, ...]) -> int |
     return descriptor
 
 
-def write_result_bytes(
-    base_path: Path, data: bytes, allowed_roots: tuple[Path, ...] = ()
-) -> Path:
+def write_result_bytes(base_path: Path, data: bytes, allowed_roots: tuple[Path, ...] = ()) -> Path:
     """Create a private result file without ever replacing an existing directory entry."""
     parent_fd = _open_checked_parent(base_path.parent, allowed_roots)
     try:

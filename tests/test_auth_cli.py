@@ -103,9 +103,7 @@ def test_relogin_revokes_previous_device_key_before_saving_new_one(monkeypatch) 
         return stored(api_key=api_key)
 
     monkeypatch.delenv("MAINBOOK_API_KEY", raising=False)
-    monkeypatch.setattr(
-        __main__, "load_credential", lambda api_base: stored(api_key=OLD_API_KEY)
-    )
+    monkeypatch.setattr(__main__, "load_credential", lambda api_base: stored(api_key=OLD_API_KEY))
     monkeypatch.setattr(__main__, "perform_login", perform_login)
     monkeypatch.setattr(__main__, "revoke_credential", revoke_credential)
     monkeypatch.setattr(__main__, "save_credential", save_credential)
@@ -215,9 +213,7 @@ def test_auth_logout_revokes_server_side_before_deleting_locally(monkeypatch, ca
 
     def delete_credential(api_base: str) -> DeleteResult:
         events.append("delete")
-        return DeleteResult(
-            credential=stored(), removed_from=("file",), keyring_unavailable=False
-        )
+        return DeleteResult(credential=stored(), removed_from=("file",), keyring_unavailable=False)
 
     monkeypatch.delenv("MAINBOOK_API_KEY", raising=False)
     monkeypatch.setattr(__main__, "load_credential", lambda api_base: stored())
@@ -243,9 +239,7 @@ def test_logout_deletes_locally_and_warns_plainly_when_revocation_fails(
 
     def delete_credential(api_base: str) -> DeleteResult:
         deleted.append(api_base)
-        return DeleteResult(
-            credential=stored(), removed_from=("file",), keyring_unavailable=False
-        )
+        return DeleteResult(credential=stored(), removed_from=("file",), keyring_unavailable=False)
 
     monkeypatch.delenv("MAINBOOK_API_KEY", raising=False)
     monkeypatch.setattr(__main__, "load_credential", lambda api_base: stored())
