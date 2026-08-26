@@ -1,0 +1,49 @@
+# Actions are pinned to commit SHAs, not tags: a tag can be moved to point at
+# different code after review, which is the supply-chain hole this closes. The
+# human-readable version stays in the trailing comment so upgrades are legible.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly, so a dependency that becomes vulnerable after the last commit is
+    # still caught on a repository that can go quiet between releases.
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - name: Install from the lockfile
+        run: uv sync --locked --all-extras --python ${{ matrix.python-version }}
+      - name: Lint
+        run: |
+          uv run ruff check src tests
+          uv run ruff format --check src tests
+      - name: Tests
+        run: uv run pytest --cov --cov-report=term-missing
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - name: Known vulnerabilities in the locked dependency set
+        run: |
+          uv sync --locked --all-extras
+          uv run --with pip-audit pip-audit --strict

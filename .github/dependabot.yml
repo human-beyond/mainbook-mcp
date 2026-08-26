@@ -1,0 +1,12 @@
+# Two ecosystems, because both are ways in: the Python dependencies the server
+# runs on, and the Actions that run in CI with repository credentials.
+version: 2
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
